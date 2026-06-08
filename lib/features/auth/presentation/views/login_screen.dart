@@ -96,9 +96,12 @@ class LoginScreen extends GetView<AuthController> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  child: controller.isLoading.value 
-                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: ColorConstants.white, strokeWidth: 2))
-                    : const Text(StringConstants.continueBtn, style: TextStyle(color: ColorConstants.white, fontSize: 16)),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    child: controller.isLoading.value 
+                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: ColorConstants.white, strokeWidth: 2))
+                      : const Text(StringConstants.continueBtn, style: TextStyle(color: ColorConstants.white, fontSize: 16)),
+                  ),
                 ),
               )),
             ],

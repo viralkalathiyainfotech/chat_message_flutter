@@ -5,6 +5,7 @@ import '../controllers/auth_controller.dart';
 import '../../../../constants/color_constants.dart';
 import '../../../../constants/string_constants.dart';
 import '../../../../core/routes/app_routes.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class ProfileInfoScreen extends GetView<AuthController> {
   const ProfileInfoScreen({super.key});
@@ -42,7 +43,7 @@ class ProfileInfoScreen extends GetView<AuthController> {
                         backgroundImage: controller.selectedImage.value != null
                             ? FileImage(File(controller.selectedImage.value!.path))
                             : controller.existingPhotoUrl.value.isNotEmpty
-                                ? NetworkImage(controller.existingPhotoUrl.value) as ImageProvider
+                                ? CachedNetworkImageProvider(controller.existingPhotoUrl.value) as ImageProvider
                                 : null,
                         child: (controller.selectedImage.value == null && controller.existingPhotoUrl.value.isEmpty)
                             ? const Icon(Icons.image, size: 50, color: ColorConstants.textSecondary)
@@ -121,9 +122,12 @@ class ProfileInfoScreen extends GetView<AuthController> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  child: controller.isLoading.value 
-                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: ColorConstants.white, strokeWidth: 2))
-                    : const Text(StringConstants.save, style: TextStyle(color: ColorConstants.white, fontSize: 16)),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    child: controller.isLoading.value 
+                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: ColorConstants.white, strokeWidth: 2))
+                      : const Text(StringConstants.save, style: TextStyle(color: ColorConstants.white, fontSize: 16)),
+                  ),
                 ),
               )),
               const SizedBox(height: 16),

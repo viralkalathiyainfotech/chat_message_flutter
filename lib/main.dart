@@ -34,6 +34,8 @@ class MyApp extends StatelessWidget {
       initialRoute: AppRoutes.splash,
       getPages: AppPages.pages,
       debugShowCheckedModeBanner: false,
+      defaultTransition: Transition.rightToLeftWithFade, // Smooth page transitions
+      transitionDuration: const Duration(milliseconds: 300),
     );
   }
 }
