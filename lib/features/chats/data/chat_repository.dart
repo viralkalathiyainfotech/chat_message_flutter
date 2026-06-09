@@ -1,0 +1,157 @@
+import 'package:chat_app/core/network/api_service.dart';
+import 'package:get/get.dart';
+import '../../../../core/database/realm_helper.dart';
+import '../../../../core/database/realm_models.dart';
+import '../../../../services/connectivity_service.dart';
+import '../../../../services/socket_service.dart';
+import '../../../../services/storage_service.dart';
+import 'package:uuid/uuid.dart';
+
+class ChatRepository {
+  final ApiService _apiService = Get.find<ApiService>();
+  final RealmHelper _realmHelper = RealmHelper();
+  final ConnectivityService _connectivity = Get.find<ConnectivityService>();
+  final SocketService _socketService = Get.find<SocketService>();
+  final _uuid = const Uuid();
+
+  Future<List<UserRealm>> getChatList() async {
+    // 1. Instantly return local cached chats
+    final localChats = _realmHelper.getUsers();
+
+    // 2. Fetch from network if online
+    if (_connectivity.isOnline.value) {
+      try {
+        final response = await _apiService.dio.get('/allMessageUsers');
+        if (response.statusCode == 200) {
+          final usersData = response.data['users'] as List;
+          final fetchedUsers = usersData.map((data) => UserRealm(
+            data['_id'] ?? '',
+            userName: data['userName'],
+            email: data['email'],
+            photo: data['photo'],
+            mobileNumber: data['mobileNumber'],
+            bio: data['bio'],
+            isOnline: data['isOnline'], // Map from socket info if available later
+          )).toList();
+
+          _realmHelper.saveUsers(fetchedUsers);
+          return fetchedUsers;
+        }
+      } catch (e) {
+        Get.log('Error fetching chat list: $e', isError: true);
+      }
+    }
+
+    return localChats;
+  }
+
+  Future<List<UserRealm>> searchUsers(String query) async {
+    // This simulates an API search by fetching all users and filtering locally,
+    // since the backend doesn't currently expose a dedicated /search endpoint.
+    final users = await getChatList();
+    if (query.isEmpty) return users;
+    
+    final lowerQuery = query.toLowerCase();
+    return users.where((u) => 
+      (u.userName ?? '').toLowerCase().contains(lowerQuery) ||
+      (u.email ?? '').toLowerCase().contains(lowerQuery) ||
+      (u.mobileNumber ?? '').contains(lowerQuery)
+    ).toList();
+  }
+
+  Future<List<MessageRealm>> getMessages(String userId) async {
+    final localMessages = _realmHelper.getMessagesForUser(userId);
+
+    if (_connectivity.isOnline.value) {
+      try {
+        final response = await _apiService.dio.post('/allMessages', data: {'selectedId': userId});
+        if (response.statusCode == 200) {
+          final messagesData = response.data['messages'] as List;
+          final fetchedMessages = messagesData.map((data) {
+            final contentData = data['content'];
+            final contentRealm = MessageContentRealm(
+              contentData['type'] ?? 'text',
+              content: contentData['content'],
+              fileUrl: contentData['fileUrl'],
+              fileType: contentData['fileType'],
+              size: contentData['size'],
+              timestamp: contentData['timestamp'],
+              status: contentData['status'],
+            );
+
+            return MessageRealm(
+              data['_id'] ?? '',
+              data['sender'] ?? '',
+              data['receiver'] ?? '',
+              data['status'] ?? 'sent',
+              data['edited'] ?? false,
+              DateTime.tryParse(data['createdAt'] ?? '') ?? DateTime.now(),
+              DateTime.tryParse(data['updatedAt'] ?? '') ?? DateTime.now(),
+              false,
+              content: contentRealm,
+            );
+          }).toList();
+
+          _realmHelper.saveMessages(fetchedMessages);
+          return _realmHelper.getMessagesForUser(userId);
+        }
+      } catch (e) {
+        Get.log('Error fetching messages: $e', isError: true);
+      }
+    }
+
+    return localMessages;
+  }
+
+  Future<void> sendMessage(String receiverId, String content, String type) async {
+    final tempId = _uuid.v4();
+    final now = DateTime.now();
+    
+    // Save locally first
+    final contentRealm = MessageContentRealm(type, content: content);
+    final localMessage = MessageRealm(
+      tempId,
+      'myUserId', // TODO: Get actual current user ID
+      receiverId,
+      'sent',
+      false,
+      now,
+      now,
+      true, // isPending
+      content: contentRealm,
+    );
+    _realmHelper.saveMessage(localMessage);
+
+    if (_connectivity.isOnline.value) {
+      // Send directly
+      await _sendRealtimeMessage(receiverId, content, type, tempId);
+    } else {
+      // Add to offline queue
+      final queuedMsg = OfflineQueueRealm(
+        tempId,
+        receiverId,
+        type,
+        content,
+        now,
+      );
+      _realmHelper.addToQueue(queuedMsg);
+    }
+  }
+
+  Future<void> _sendRealtimeMessage(String receiverId, String content, String type, String tempId) async {
+    // Logic to send message through socket
+    Get.log('Sending message to $receiverId');
+    final userId = Get.find<StorageService>().getUserId() ?? 'myUserId';
+    _socketService.emitPrivateMessage({
+      'senderId': userId,
+      'receiverId': receiverId,
+      'content': {
+        'type': type,
+        'content': content,
+      },
+      'replyTo': null,
+      'isBlocked': false,
+      'tempMessageId': tempId,
+    });
+  }
+}

@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:get/get.dart';
+import 'package:get/get.dart' hide ContextExtensionss;
 import '../controllers/auth_controller.dart';
 import '../../../../constants/color_constants.dart';
 import '../../../../constants/string_constants.dart';
+import '../../../../core/extensions/app_extensions.dart';
 
 class LoginScreen extends GetView<AuthController> {
   const LoginScreen({super.key});
@@ -10,7 +11,7 @@ class LoginScreen extends GetView<AuthController> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: ColorConstants.backgroundLight,
+      backgroundColor: ColorConstants.backgroundDarkMode,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 40.0),
@@ -26,22 +27,22 @@ class LoginScreen extends GetView<AuthController> {
                 ),
                 child: const Center(child: Icon(Icons.person, color: Colors.black, size: 30)),
               ),
-              const SizedBox(height: 24),
+              24.height,
               const Text(
                 StringConstants.welcomeBack,
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: ColorConstants.white),
               ),
-              const SizedBox(height: 8),
+              8.height,
               const Text(
                 StringConstants.enterPhoneNumber,
                 style: TextStyle(fontSize: 14, color: ColorConstants.textSecondary),
               ),
-              const SizedBox(height: 40),
+              40.height,
               const Text(
                 StringConstants.countryLabel,
                 style: TextStyle(color: ColorConstants.white, fontSize: 16),
               ),
-              const SizedBox(height: 8),
+              8.height,
               Container(
                 height: 55,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -52,18 +53,18 @@ class LoginScreen extends GetView<AuthController> {
                 child: Row(
                   children: [
                     const Text('🇮🇳', style: TextStyle(fontSize: 24)),
-                    const SizedBox(width: 12),
+                    12.width,
                     const Expanded(child: Text('India', style: TextStyle(color: ColorConstants.white, fontSize: 16))),
                     const Icon(Icons.keyboard_arrow_down, color: ColorConstants.textSecondary),
                   ],
                 ),
               ),
-              const SizedBox(height: 24),
+              24.height,
               const Text(
                 StringConstants.mobileLabel,
                 style: TextStyle(color: ColorConstants.white, fontSize: 16),
               ),
-              const SizedBox(height: 8),
+              8.height,
               TextField(
                 controller: controller.phoneController,
                 keyboardType: TextInputType.phone,
@@ -84,7 +85,7 @@ class LoginScreen extends GetView<AuthController> {
                   ),
                 ),
               ),
-              const SizedBox(height: 40),
+              40.height,
               Obx(() => SizedBox(
                 width: double.infinity,
                 height: 50,

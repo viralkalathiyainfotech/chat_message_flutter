@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:get/get.dart';
+import 'package:get/get.dart' hide ContextExtensionss;
 import 'dart:io';
 import '../controllers/auth_controller.dart';
 import '../../../../constants/color_constants.dart';
 import '../../../../constants/string_constants.dart';
 import '../../../../core/routes/app_routes.dart';
+import '../../../../core/extensions/app_extensions.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 class ProfileInfoScreen extends GetView<AuthController> {
@@ -13,10 +14,10 @@ class ProfileInfoScreen extends GetView<AuthController> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: ColorConstants.backgroundLight,
+      backgroundColor: ColorConstants.backgroundDarkMode,
       appBar: AppBar(
         title: const Text(StringConstants.yourProfile, style: TextStyle(color: ColorConstants.white, fontSize: 18)),
-        leading: IconButton(icon: const Icon(Icons.arrow_back_ios, size: 20), onPressed: () => Get.back()),
+        leading: IconButton(icon: const Icon(Icons.arrow_back_ios, size: 20), onPressed: context.back),
         elevation: 0,
         backgroundColor: Colors.transparent,
         iconTheme: const IconThemeData(color: ColorConstants.white),
@@ -31,7 +32,7 @@ class ProfileInfoScreen extends GetView<AuthController> {
                 StringConstants.profileSubtitle,
                 style: TextStyle(fontSize: 14, color: ColorConstants.textSecondary, height: 1.5),
               ),
-              const SizedBox(height: 40),
+              40.height,
               Center(
                 child: Obx(() => GestureDetector(
                   onTap: controller.pickImage,
@@ -53,7 +54,7 @@ class ProfileInfoScreen extends GetView<AuthController> {
                         bottom: 0,
                         right: 0,
                         child: Container(
-                          padding: const EdgeInsets.all(8),
+                          padding: 8.all,
                           decoration: const BoxDecoration(
                             color: ColorConstants.inputBackground,
                             shape: BoxShape.circle,
@@ -65,9 +66,9 @@ class ProfileInfoScreen extends GetView<AuthController> {
                   ),
                 )),
               ),
-              const SizedBox(height: 40),
+              40.height,
               const Text(StringConstants.fullNameLabel, style: TextStyle(color: ColorConstants.white, fontSize: 16)),
-              const SizedBox(height: 8),
+              8.height,
               TextField(
                 controller: controller.userNameController,
                 style: const TextStyle(color: ColorConstants.white),
@@ -83,9 +84,9 @@ class ProfileInfoScreen extends GetView<AuthController> {
                   ),
                 ),
               ),
-              const SizedBox(height: 30),
+              30.height,
               const Text(StringConstants.aboutLabel, style: TextStyle(color: ColorConstants.white, fontSize: 16)),
-              const SizedBox(height: 8),
+              8.height,
               TextField(
                 controller: controller.bioController,
                 maxLines: 4,
@@ -110,7 +111,7 @@ class ProfileInfoScreen extends GetView<AuthController> {
                   ),
                 ),
               ),
-              const SizedBox(height: 50),
+              50.height,
               Obx(() => SizedBox(
                 width: double.infinity,
                 height: 50,
@@ -130,7 +131,7 @@ class ProfileInfoScreen extends GetView<AuthController> {
                   ),
                 ),
               )),
-              const SizedBox(height: 16),
+              16.height,
               Center(
                 child: TextButton(
                   onPressed: () => Get.offAllNamed(AppRoutes.home),

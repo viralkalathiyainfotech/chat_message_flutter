@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:get/get.dart';
+import 'package:get/get.dart' hide ContextExtensionss;
 import 'package:pinput/pinput.dart';
 import '../controllers/auth_controller.dart';
 import '../../../../constants/color_constants.dart';
 import '../../../../constants/string_constants.dart';
+import '../../../../core/extensions/app_extensions.dart';
 
 class VerifyOtpScreen extends GetView<AuthController> {
   const VerifyOtpScreen({super.key});
@@ -11,9 +12,9 @@ class VerifyOtpScreen extends GetView<AuthController> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: ColorConstants.backgroundLight,
+      backgroundColor: ColorConstants.backgroundDarkMode,
       appBar: AppBar(
-        leading: IconButton(icon: const Icon(Icons.arrow_back_ios, size: 20), onPressed: () => Get.back()),
+        leading: IconButton(icon: const Icon(Icons.arrow_back_ios, size: 20), onPressed: context.back),
         elevation: 0,
         backgroundColor: Colors.transparent,
         iconTheme: const IconThemeData(color: ColorConstants.white),
@@ -24,12 +25,12 @@ class VerifyOtpScreen extends GetView<AuthController> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const SizedBox(height: 20),
+              20.height,
               const Text(
                 StringConstants.verifyOtpTitle,
                 style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: ColorConstants.white),
               ),
-              const SizedBox(height: 12),
+              12.height,
               Obx(() => RichText(
                 textAlign: TextAlign.center,
                 text: TextSpan(
@@ -44,7 +45,7 @@ class VerifyOtpScreen extends GetView<AuthController> {
                   ],
                 ),
               )),
-              const SizedBox(height: 40),
+              40.height,
               Pinput(
                 length: 6,
                 controller: controller.otpController,
@@ -59,7 +60,7 @@ class VerifyOtpScreen extends GetView<AuthController> {
                 ),
                 onCompleted: (pin) => controller.verifyOtp(pin),
               ),
-              const SizedBox(height: 40),
+              40.height,
               Obx(() => SizedBox(
                 width: double.infinity,
                 height: 50,
@@ -83,12 +84,12 @@ class VerifyOtpScreen extends GetView<AuthController> {
                   ),
                 ),
               )),
-              const SizedBox(height: 24),
+              24.height,
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const Text(StringConstants.didntReceive, style: TextStyle(color: ColorConstants.textSecondary, fontSize: 14)),
-                  const SizedBox(width: 4),
+                  4.width,
                   GestureDetector(
                     onTap: () {},
                     child: const Text(

@@ -6,9 +6,9 @@ import '../../features/auth/presentation/views/onboarding_screen.dart';
 import '../../features/auth/presentation/views/login_screen.dart';
 import '../../features/auth/presentation/views/verify_otp_screen.dart';
 import '../../features/auth/presentation/views/profile_info_screen.dart';
+import '../../features/main/presentation/bindings/main_binding.dart';
+import '../../features/main/presentation/views/main_screen.dart';
 import 'app_routes.dart';
-import 'package:flutter/material.dart';
-
 class AppPages {
   static final pages = [
     GetPage(
@@ -37,7 +37,8 @@ class AppPages {
     ),
     GetPage(
       name: AppRoutes.home,
-      page: () => const Scaffold(body: Center(child: Text('Home Screen'))),
+      page: () => const MainScreen(),
+      binding: MainBinding(),
     ),
   ];
 }

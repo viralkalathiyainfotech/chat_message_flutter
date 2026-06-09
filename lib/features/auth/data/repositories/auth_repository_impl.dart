@@ -37,6 +37,9 @@ class AuthRepositoryImpl implements AuthRepository {
         refreshToken: result['refreshToken'],
       );
       
+      final user = result['user'] as User;
+      await storageService.saveString('user_id', user.id);
+      
       return Right(result['user'] as User);
     } on DioException catch (e) {
       return Left(ServerFailure(e.message ?? 'Failed to verify OTP'));
