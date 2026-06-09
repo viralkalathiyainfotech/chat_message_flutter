@@ -2,9 +2,11 @@ import 'package:dio/dio.dart';
 import 'package:get/get.dart' as getx;
 import '../../services/storage_service.dart';
 import '../../constants/network_constants.dart';
+
 class AuthInterceptor extends Interceptor {
   final StorageService _storageService = getx.Get.find<StorageService>();
   final Dio _dio;
+  bool _isRefreshing = false;
 
   AuthInterceptor(this._dio);
 
@@ -19,14 +21,16 @@ class AuthInterceptor extends Interceptor {
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) async {
-    if (err.response?.statusCode == 401 && _storageService.refreshToken != null) {
-      // Avoid infinite loops if the refresh token call itself fails with 401
-      if (err.requestOptions.path == NetworkConstants.generateNewTokens) {
+    // Only attempt refresh on 401, and only if we have a refresh token
+    if (err.response?.statusCode == 401 && _storageService.refreshToken != null && !_isRefreshing) {
+      // Prevent infinite loops on the refresh token endpoint itself
+      if (err.requestOptions.path.contains(NetworkConstants.generateNewTokens)) {
         await _storageService.clearTokens();
-        getx.Get.offAllNamed('/login'); // Redirect to login
+        getx.Get.offAllNamed('/login');
         return super.onError(err, handler);
       }
 
+      _isRefreshing = true;
       try {
         final newTokens = await _refreshToken(_storageService.refreshToken!);
         if (newTokens != null) {
@@ -35,37 +39,48 @@ class AuthInterceptor extends Interceptor {
             refreshToken: newTokens['refreshToken']!,
           );
 
-          // Retry the original request
-          final options = err.requestOptions;
-          options.headers['Authorization'] = 'Bearer ${_storageService.token}';
-          
-          final response = await _dio.fetch(options);
+          // Retry the original failed request with the new access token
+          final retryOptions = err.requestOptions;
+          retryOptions.headers['Authorization'] = 'Bearer ${newTokens['token']}';
+
+          final response = await _dio.fetch(retryOptions);
+          _isRefreshing = false;
           return handler.resolve(response);
         }
       } catch (e) {
-        // Refresh token failed, clear storage and go to login
-        await _storageService.clearTokens();
-        getx.Get.offAllNamed('/login');
+        getx.Get.log('Token refresh failed: $e', isError: true);
+      } finally {
+        _isRefreshing = false;
       }
+
+      // If refresh failed, clear tokens and redirect to login
+      await _storageService.clearTokens();
+      getx.Get.offAllNamed('/login');
     }
     super.onError(err, handler);
   }
 
   Future<Map<String, String>?> _refreshToken(String refreshToken) async {
     try {
-      // Using a separate dio instance to avoid interceptor recursion
-      final dio = Dio(BaseOptions(baseUrl: _dio.options.baseUrl));
-      dio.options.headers['Authorization'] = 'Bearer $refreshToken'; // As requested by user: authorization send refresh_token
-      
-      final response = await dio.post(NetworkConstants.generateNewTokens);
-      
-      if (response.statusCode == 200) {
+      // Use a fresh Dio instance to avoid re-triggering this interceptor
+      final refreshDio = Dio(BaseOptions(baseUrl: _dio.options.baseUrl));
+      // Backend reads refresh token from the Authorization header
+      refreshDio.options.headers['Authorization'] = 'Bearer $refreshToken';
+
+      final response = await refreshDio.post(NetworkConstants.generateNewTokens);
+
+      if (response.statusCode == 200 &&
+          response.data['accessToken'] != null &&
+          response.data['refreshToken'] != null) {
+        // Backend returns 'accessToken' and 'refreshToken'
         return {
-          'token': response.data['token'],
-          'refreshToken': response.data['refreshToken'],
+          'token': response.data['accessToken'] as String,
+          'refreshToken': response.data['refreshToken'] as String,
         };
       }
-    } catch (_) {}
+    } catch (e) {
+      getx.Get.log('Refresh token API error: $e', isError: true);
+    }
     return null;
   }
 }

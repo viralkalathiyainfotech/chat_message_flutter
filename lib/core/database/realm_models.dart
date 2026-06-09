@@ -49,3 +49,11 @@ class _OfflineQueueRealm {
   late String content;
   late DateTime createdAt;
 }
+
+@RealmModel()
+class _LocalContactRealm {
+  @PrimaryKey()
+  late String id; // Use phone number or system contact ID as primary key
+  late String displayName;
+  late String phoneNumber;
+}

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
-import '../../../../constants/color_constants.dart';
 import '../controllers/new_chat_controller.dart';
 import 'chat_detail_screen.dart';
 
@@ -43,129 +42,113 @@ class NewChatScreen extends StatelessWidget {
           ),
         ),
       ),
-      body: CustomScrollView(
-        slivers: [
-          SliverToBoxAdapter(
-            child: Column(
-              children: [
-                _buildActionItem(
-                  context, 
-                  icon: Icons.group_add, 
-                  title: 'New Group', 
-                  onTap: () {
-                    // TODO: Implement New Group
-                  }
-                ),
-                _buildActionItem(
-                  context, 
-                  icon: Icons.person_add, 
-                  title: 'New Contact', 
-                  onTap: () {
-                    // TODO: Implement New Contact
-                  }
-                ),
-                _buildActionItem(
-                  context, 
-                  icon: Icons.groups, 
-                  title: 'New Community', 
-                  onTap: () {
-                    // TODO: Implement New Community
-                  }
-                ),
-                const Padding(
+      body: Obx(() {
+        if (controller.isLoading.value) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (controller.searchResults.isEmpty && controller.unregisteredContacts.isEmpty) {
+          return const Center(
+            child: Text(
+              'No contacts found.',
+              style: TextStyle(color: Colors.grey),
+            ),
+          );
+        }
+
+        return CustomScrollView(
+          slivers: [
+            if (controller.searchResults.isNotEmpty) ...[
+              const SliverToBoxAdapter(
+                child: Padding(
                   padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Contacts on App',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey,
+                  child: Text('Contacts on ChatApp', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                ),
+              ),
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final user = controller.searchResults[index];
+                    final hasValidPhoto = user.photo != null && user.photo!.startsWith('http');
+                    return ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      leading: CircleAvatar(
+                        radius: 22,
+                        backgroundImage: hasValidPhoto ? CachedNetworkImageProvider(user.photo!) : null,
+                        backgroundColor: Colors.grey.shade400,
+                        child: !hasValidPhoto ? const Icon(Icons.person, color: Colors.white) : null,
                       ),
-                    ),
-                  ),
+                      title: Text(
+                        user.userName ?? 'Unknown User',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      subtitle: Text(
+                        user.bio ?? user.mobileNumber ?? 'Available',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.grey),
+                      ),
+                      onTap: () {
+                        Get.off(() => ChatDetailScreen(user: user));
+                      },
+                    );
+                  },
+                  childCount: controller.searchResults.length,
                 ),
-              ],
-            ),
-          ),
-          Obx(() {
-            if (controller.isLoading.value) {
-              return const SliverFillRemaining(
-                child: Center(child: CircularProgressIndicator()),
-              );
-            }
-
-            if (controller.searchResults.isEmpty) {
-              return const SliverFillRemaining(
-                child: Center(
-                  child: Text(
-                    'No users found.',
-                    style: TextStyle(color: Colors.grey),
-                  ),
+              ),
+            ],
+            
+            if (controller.unregisteredContacts.isNotEmpty) ...[
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(16, 24, 16, 8),
+                  child: Text('Invite to ChatApp', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
                 ),
-              );
-            }
-
-            return SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final user = controller.searchResults[index];
-                  return ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                    leading: CircleAvatar(
-                      radius: 22,
-                      backgroundImage: user.photo != null ? CachedNetworkImageProvider(user.photo!) : null,
-                      backgroundColor: Colors.grey.shade400,
-                      child: user.photo == null ? const Icon(Icons.person, color: Colors.white) : null,
-                    ),
-                    title: Text(
-                      user.userName ?? 'Unknown User',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                    subtitle: Text(
-                      user.bio ?? user.mobileNumber ?? 'Available',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.grey),
-                    ),
-                    onTap: () {
-                      Get.off(() => ChatDetailScreen(user: user));
-                    },
-                  );
-                },
-                childCount: controller.searchResults.length,
               ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActionItem(BuildContext context, {required IconData icon, required String title, required VoidCallback onTap}) {
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: const BoxDecoration(
-                color: ColorConstants.primaryBlue,
-                shape: BoxShape.circle,
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final contact = controller.unregisteredContacts[index];
+                    return ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      leading: CircleAvatar(
+                        radius: 22,
+                        backgroundColor: Colors.blueGrey.shade100,
+                        child: Text(
+                          contact.displayName.isNotEmpty ? contact.displayName[0].toUpperCase() : '?',
+                          style: TextStyle(color: Colors.blueGrey.shade800, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      title: Text(
+                        contact.displayName,
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                      ),
+                      subtitle: Text(
+                        contact.phoneNumber,
+                        style: const TextStyle(color: Colors.grey),
+                      ),
+                      trailing: TextButton(
+                        onPressed: () {
+                          // Handle invite action
+                          Get.snackbar('Invite', 'Inviting ${contact.displayName} via SMS...');
+                        },
+                        style: TextButton.styleFrom(
+                          backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
+                          foregroundColor: Theme.of(context).primaryColor,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        ),
+                        child: const Text('Invite', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    );
+                  },
+                  childCount: controller.unregisteredContacts.length,
+                ),
               ),
-              child: Icon(icon, color: Colors.white, size: 20),
-            ),
-            const SizedBox(width: 16),
-            Text(
-              title,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
+            ],
           ],
-        ),
-      ),
+        );
+      }),
     );
   }
+
 }

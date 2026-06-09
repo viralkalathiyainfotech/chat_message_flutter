@@ -1,5 +1,7 @@
 import 'package:chat_app/core/network/api_service.dart';
 import 'package:get/get.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../../../core/database/realm_helper.dart';
 import '../../../../core/database/realm_models.dart';
 import '../../../../services/connectivity_service.dart';
@@ -48,7 +50,7 @@ class ChatRepository {
   Future<List<UserRealm>> searchUsers(String query) async {
     // This simulates an API search by fetching all users and filtering locally,
     // since the backend doesn't currently expose a dedicated /search endpoint.
-    final users = await getChatList();
+    final users = await getUserList();
     if (query.isEmpty) return users;
     
     final lowerQuery = query.toLowerCase();
@@ -153,5 +155,106 @@ class ChatRepository {
       'isBlocked': false,
       'tempMessageId': tempId,
     });
+  }
+
+  Future<List<UserRealm>> getUserList() async {
+    // 1. Instantly return local cached contacts
+    final localContacts = _realmHelper.getUsers();
+
+    // 2. Fetch from network if online
+    if (_connectivity.isOnline.value) {
+      try {
+        final response = await _apiService.dio.get('/allContactUsers');
+        if (response.statusCode == 200) {
+          final usersData = response.data['users'] as List;
+          final fetchedUsers = usersData.map((data) {
+            // Filter out local Android content:// URIs that won't load over network
+            final rawPhoto = data['photo'] as String?;
+            final photo = (rawPhoto != null && rawPhoto.startsWith('http')) ? rawPhoto : null;
+            return UserRealm(
+              data['_id'] ?? '',
+              userName: data['userName'],
+              email: data['email'],
+              photo: photo,
+              mobileNumber: data['mobileNumber'],
+              bio: data['bio'],
+              isOnline: null, // Populated by socket events, not API
+            );
+          }).toList();
+
+          _realmHelper.saveUsers(fetchedUsers);
+          return fetchedUsers;
+        }
+      } catch (e) {
+        Get.log('Error fetching contact users: $e', isError: true);
+      }
+    }
+
+    return localContacts;
+  }
+
+  Future<List<LocalContactRealm>> syncContacts() async {
+    final status = await Permission.contacts.request();
+    if (!status.isGranted) {
+      Get.log('Contacts permission denied');
+      return _realmHelper.getLocalContacts();
+    }
+
+    final deviceContacts = await FlutterContacts.getAll(properties: {ContactProperty.phone});
+    final cachedContacts = _realmHelper.getLocalContacts();
+    
+    // Create map for easy comparison
+    final cachedMap = {for (var c in cachedContacts) c.phoneNumber: c.displayName};
+    
+    bool hasChanges = false;
+    List<LocalContactRealm> newLocalContacts = [];
+    List<Map<String, dynamic>> apiContactsPayload = [];
+
+    for (var dc in deviceContacts) {
+      if (dc.phones.isNotEmpty) {
+        final rawPhone = dc.phones.first.number;
+        final formattedPhone = rawPhone.replaceAll(RegExp(r'\s+|-|\(|\)'), ''); // Basic normalization
+        final displayName = dc.displayName;
+        
+        newLocalContacts.add(LocalContactRealm(dc.id ?? '', displayName ?? '', formattedPhone ?? ''));
+        
+        apiContactsPayload.add({
+          "id": dc.id,
+          "name": displayName,
+          "phone": formattedPhone,
+        });
+
+        if (cachedMap[formattedPhone] != displayName) {
+          hasChanges = true;
+        }
+      }
+    }
+
+    if (cachedContacts.length != newLocalContacts.length) {
+      hasChanges = true;
+    }
+
+    if (hasChanges) {
+      Get.log('Contacts changed. Syncing with backend...');
+      _realmHelper.clearLocalContacts();
+      _realmHelper.saveLocalContacts(newLocalContacts);
+      
+      if (_connectivity.isOnline.value) {
+        try {
+          await _apiService.dio.post('/addContactList', data: [
+            {
+              "contacts": apiContactsPayload
+            }
+          ]);
+          Get.log('Contacts synced successfully');
+        } catch (e) {
+          Get.log('Error syncing contacts to API: $e', isError: true);
+        }
+      }
+    } else {
+      Get.log('No changes in contacts. Skip API sync.');
+    }
+
+    return newLocalContacts;
   }
 }

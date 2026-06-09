@@ -542,3 +542,90 @@ class OfflineQueueRealm extends _OfflineQueueRealm
   @override
   SchemaObject get objectSchema => RealmObjectBase.getSchema(this) ?? schema;
 }
+
+class LocalContactRealm extends _LocalContactRealm
+    with RealmEntity, RealmObjectBase, RealmObject {
+  LocalContactRealm(String id, String displayName, String phoneNumber) {
+    RealmObjectBase.set(this, 'id', id);
+    RealmObjectBase.set(this, 'displayName', displayName);
+    RealmObjectBase.set(this, 'phoneNumber', phoneNumber);
+  }
+
+  LocalContactRealm._();
+
+  @override
+  String get id => RealmObjectBase.get<String>(this, 'id') as String;
+  @override
+  set id(String value) => RealmObjectBase.set(this, 'id', value);
+
+  @override
+  String get displayName =>
+      RealmObjectBase.get<String>(this, 'displayName') as String;
+  @override
+  set displayName(String value) =>
+      RealmObjectBase.set(this, 'displayName', value);
+
+  @override
+  String get phoneNumber =>
+      RealmObjectBase.get<String>(this, 'phoneNumber') as String;
+  @override
+  set phoneNumber(String value) =>
+      RealmObjectBase.set(this, 'phoneNumber', value);
+
+  @override
+  Stream<RealmObjectChanges<LocalContactRealm>> get changes =>
+      RealmObjectBase.getChanges<LocalContactRealm>(this);
+
+  @override
+  Stream<RealmObjectChanges<LocalContactRealm>> changesFor([
+    List<String>? keyPaths,
+  ]) => RealmObjectBase.getChangesFor<LocalContactRealm>(this, keyPaths);
+
+  @override
+  LocalContactRealm freeze() =>
+      RealmObjectBase.freezeObject<LocalContactRealm>(this);
+
+  EJsonValue toEJson() {
+    return <String, dynamic>{
+      'id': id.toEJson(),
+      'displayName': displayName.toEJson(),
+      'phoneNumber': phoneNumber.toEJson(),
+    };
+  }
+
+  static EJsonValue _toEJson(LocalContactRealm value) => value.toEJson();
+  static LocalContactRealm _fromEJson(EJsonValue ejson) {
+    if (ejson is! Map<String, dynamic>) return raiseInvalidEJson(ejson);
+    return switch (ejson) {
+      {
+        'id': EJsonValue id,
+        'displayName': EJsonValue displayName,
+        'phoneNumber': EJsonValue phoneNumber,
+      } =>
+        LocalContactRealm(
+          fromEJson(id),
+          fromEJson(displayName),
+          fromEJson(phoneNumber),
+        ),
+      _ => raiseInvalidEJson(ejson),
+    };
+  }
+
+  static final schema = () {
+    RealmObjectBase.registerFactory(LocalContactRealm._);
+    register(_toEJson, _fromEJson);
+    return const SchemaObject(
+      ObjectType.realmObject,
+      LocalContactRealm,
+      'LocalContactRealm',
+      [
+        SchemaProperty('id', RealmPropertyType.string, primaryKey: true),
+        SchemaProperty('displayName', RealmPropertyType.string),
+        SchemaProperty('phoneNumber', RealmPropertyType.string),
+      ],
+    );
+  }();
+
+  @override
+  SchemaObject get objectSchema => RealmObjectBase.getSchema(this) ?? schema;
+}

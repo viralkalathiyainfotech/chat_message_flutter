@@ -14,6 +14,7 @@ class RealmHelper {
       MessageContentRealm.schema,
       MessageRealm.schema,
       OfflineQueueRealm.schema,
+      LocalContactRealm.schema,
     ]);
     _realm = Realm(config);
   }
@@ -75,6 +76,25 @@ class RealmHelper {
   void clearQueue() {
     _realm.write(() {
       _realm.deleteAll<OfflineQueueRealm>();
+    });
+  }
+
+  // --- Local Contacts ---
+  void saveLocalContacts(List<LocalContactRealm> contacts) {
+    _realm.write(() {
+      for (var contact in contacts) {
+        _realm.add(contact, update: true);
+      }
+    });
+  }
+
+  List<LocalContactRealm> getLocalContacts() {
+    return _realm.all<LocalContactRealm>().toList();
+  }
+
+  void clearLocalContacts() {
+    _realm.write(() {
+      _realm.deleteAll<LocalContactRealm>();
     });
   }
 }

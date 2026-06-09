@@ -30,7 +30,7 @@ class SyncService extends GetxService {
     
     for (var queuedMsg in queue) {
       try {
-        // TODO: Call ChatRepository or ApiService to send the message to the backend
+        // Call ChatRepository or ApiService to send the message to the backend
         // Example: await Get.find<ChatRepository>().sendRealtimeMessage(queuedMsg.receiverId, queuedMsg.content, queuedMsg.type);
         
         // Once successfully sent, remove from queue

@@ -8,6 +8,11 @@ class NewChatController extends GetxController {
   final ChatRepository _chatRepository = Get.find<ChatRepository>();
   
   final RxList<UserRealm> searchResults = <UserRealm>[].obs;
+  final RxList<LocalContactRealm> unregisteredContacts = <LocalContactRealm>[].obs;
+  
+  List<UserRealm> _allRegisteredUsers = [];
+  List<LocalContactRealm> _allUnregisteredContacts = [];
+
   final RxBool isLoading = true.obs;
   
   final TextEditingController searchController = TextEditingController();
@@ -22,19 +27,49 @@ class NewChatController extends GetxController {
 
   Future<void> _loadInitialUsers() async {
     isLoading.value = true;
-    searchResults.value = await _chatRepository.searchUsers('');
+    
+    // Sync and fetch local contacts
+    final localContacts = await _chatRepository.syncContacts();
+    
+    // Fetch registered contacts from backend
+    _allRegisteredUsers = await _chatRepository.getUserList();
+    
+    // Determine unregistered contacts by checking phone numbers
+    final registeredPhones = _allRegisteredUsers.map((u) {
+      final phone = u.mobileNumber ?? '';
+      return phone.replaceAll(RegExp(r'\s+|-|\(|\)'), '');
+    }).toSet();
+    
+    _allUnregisteredContacts = localContacts.where((lc) {
+      return !registeredPhones.contains(lc.phoneNumber);
+    }).toList();
+
+    searchResults.value = _allRegisteredUsers;
+    unregisteredContacts.value = _allUnregisteredContacts;
+    
     isLoading.value = false;
   }
 
   void _onSearchChanged() {
     if (_debounce?.isActive ?? false) _debounce?.cancel();
     
-    // Simulate API search with debounce
-    _debounce = Timer(const Duration(milliseconds: 500), () async {
-      final query = searchController.text.trim();
-      isLoading.value = true;
-      searchResults.value = await _chatRepository.searchUsers(query);
-      isLoading.value = false;
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      final query = searchController.text.trim().toLowerCase();
+      if (query.isEmpty) {
+        searchResults.value = _allRegisteredUsers;
+        unregisteredContacts.value = _allUnregisteredContacts;
+      } else {
+        searchResults.value = _allRegisteredUsers.where((u) =>
+          (u.userName ?? '').toLowerCase().contains(query) ||
+          (u.email ?? '').toLowerCase().contains(query) ||
+          (u.mobileNumber ?? '').contains(query)
+        ).toList();
+        
+        unregisteredContacts.value = _allUnregisteredContacts.where((lc) =>
+          lc.displayName.toLowerCase().contains(query) ||
+          lc.phoneNumber.contains(query)
+        ).toList();
+      }
     });
   }
 
