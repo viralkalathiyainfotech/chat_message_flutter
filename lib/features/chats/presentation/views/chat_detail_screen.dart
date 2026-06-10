@@ -8,35 +8,42 @@ import 'dart:io';
 
 import '../../../../constants/color_constants.dart';
 import '../../../../constants/asset_constants.dart';
+import '../../../call/presentation/controllers/call_controller.dart';
 import '../../../../core/database/realm_models.dart';
+import '../../../../utils/encryption_util.dart';
+import '../../../../services/storage_service.dart';
 import '../controllers/chat_detail_controller.dart';
 import '../widgets/attachment_bottom_sheet.dart';
 
 class ChatDetailScreen extends StatelessWidget {
   final UserRealm user;
-  
+
   const ChatDetailScreen({super.key, required this.user});
 
   @override
   Widget build(BuildContext context) {
     // Inject controller specific to this user
-    final controller = Get.put(ChatDetailController(remoteUser: user), tag: user.id);
-    
+    final controller = Get.put(
+      ChatDetailController(remoteUser: user),
+      tag: user.id,
+    );
+
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: _buildAppBar(context, controller),
       body: Column(
         children: [
-          Expanded(
-            child: _buildMessageList(controller),
-          ),
+          Expanded(child: _buildMessageList(controller)),
           _buildInputBar(context, controller),
         ],
       ),
     );
   }
 
-  PreferredSizeWidget _buildAppBar(BuildContext context, ChatDetailController controller) {
+  PreferredSizeWidget _buildAppBar(
+    BuildContext context,
+    ChatDetailController controller,
+  ) {
     return AppBar(
       elevation: 1,
       surfaceTintColor: Colors.transparent,
@@ -46,7 +53,9 @@ class ChatDetailScreen extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: 20,
-            backgroundImage: user.photo != null ? CachedNetworkImageProvider(user.photo!) : null,
+            backgroundImage: user.photo != null
+                ? CachedNetworkImageProvider(user.photo!)
+                : null,
             child: user.photo == null ? const Icon(Icons.person) : null,
           ),
           const SizedBox(width: 12),
@@ -56,15 +65,27 @@ class ChatDetailScreen extends StatelessWidget {
               children: [
                 Text(
                   user.userName ?? 'User',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 Obx(() {
                   if (controller.isRemoteTyping.value) {
-                    return const Text('typing...', style: TextStyle(fontSize: 12, color: ColorConstants.primaryBlue));
+                    return const Text(
+                      'typing...',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: ColorConstants.primaryBlue,
+                      ),
+                    );
                   }
                   return Text(
-                    user.isOnline == true ? 'Online' : 'Offline',
-                    style: TextStyle(fontSize: 12, color: user.isOnline == true ? Colors.green : Colors.grey),
+                    controller.isUserOnline.value ? 'Online' : 'Offline',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: controller.isUserOnline.value ? Colors.green : Colors.grey,
+                    ),
                   );
                 }),
               ],
@@ -73,8 +94,14 @@ class ChatDetailScreen extends StatelessWidget {
         ],
       ),
       actions: [
-        IconButton(icon: const Icon(Icons.videocam), onPressed: () {}),
-        IconButton(icon: const Icon(Icons.call), onPressed: () {}),
+        IconButton(
+          icon: const Icon(Icons.videocam),
+          onPressed: () => Get.find<CallController>().startCall(controller.remoteUser.id, video: true),
+        ),
+        IconButton(
+          icon: const Icon(Icons.call),
+          onPressed: () => Get.find<CallController>().startCall(controller.remoteUser.id, video: false),
+        ),
         IconButton(icon: const Icon(Icons.more_vert), onPressed: () {}),
       ],
     );
@@ -86,7 +113,9 @@ class ChatDetailScreen extends StatelessWidget {
         return const Center(child: CircularProgressIndicator());
       }
       if (controller.messages.isEmpty) {
-        return const Center(child: Text('No messages yet', style: TextStyle(color: Colors.grey)));
+        return const Center(
+          child: Text('No messages yet', style: TextStyle(color: Colors.grey)),
+        );
       }
       return ListView.builder(
         reverse: true, // start from bottom
@@ -95,76 +124,239 @@ class ChatDetailScreen extends StatelessWidget {
         itemCount: controller.messages.length,
         itemBuilder: (context, index) {
           final message = controller.messages[index];
-          final isMe = message.senderId != controller.remoteUser.id; // Check if sent by current user
-          
-          return _buildChatBubble(message, isMe, context);
+          final currentUserId = Get.find<StorageService>().getUserId();
+          final isMe = message.senderId == currentUserId;
+
+          return _buildChatBubble(message, isMe, context, controller);
         },
       );
     });
   }
 
-  Widget _buildChatBubble(MessageRealm message, bool isMe, BuildContext context) {
-    return Align(
-      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8, top: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-        decoration: BoxDecoration(
-          color: isMe ? ColorConstants.primaryBlue : Theme.of(context).cardColor,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: isMe ? const Radius.circular(16) : Radius.zero,
-            bottomRight: isMe ? Radius.zero : const Radius.circular(16),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 5,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
+  Widget _buildChatBubble(
+    MessageRealm message,
+    bool isMe,
+    BuildContext context,
+    ChatDetailController controller,
+  ) {
+    return GestureDetector(
+      onLongPress: () =>
+          _showMessageOptions(context, controller, message, isMe),
+      child: Align(
+        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+        child: Stack(
+          clipBehavior: Clip.none,
           children: [
-            if (message.content?.type == 'text')
-              Text(
-                message.content?.content ?? '',
-                style: TextStyle(
-                  color: isMe ? Colors.white : Theme.of(context).textTheme.bodyLarge?.color,
-                  fontSize: 15,
+            Container(
+              margin: EdgeInsets.only(
+                bottom: message.reactions.isNotEmpty ? 16 : 8,
+                top: 4,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.75,
+              ),
+              decoration: BoxDecoration(
+                color: isMe
+                    ? ColorConstants.primaryBlue
+                    : Theme.of(context).cardColor,
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(16),
+                  topRight: const Radius.circular(16),
+                  bottomLeft: isMe ? const Radius.circular(16) : Radius.zero,
+                  bottomRight: isMe ? Radius.zero : const Radius.circular(16),
                 ),
-              )
-            else if (message.content?.type == 'image')
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.file(File(message.content!.content!), width: 200, height: 200, fit: BoxFit.cover),
-              )
-            else
-              Text('Attachment: ${message.content?.type}', style: TextStyle(color: isMe ? Colors.white : Colors.black)),
-            
-            const SizedBox(height: 4),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  "${message.createdAt.hour.toString().padLeft(2, '0')}:${message.createdAt.minute.toString().padLeft(2, '0')}",
-                  style: TextStyle(
-                    color: isMe ? Colors.white.withValues(alpha: 0.7) : Colors.grey,
-                    fontSize: 10,
-                  ),
-                ),
-                if (isMe) ...[
-                  const SizedBox(width: 4),
-                  Icon(
-                    message.isPending ? Icons.access_time : Icons.done_all,
-                    size: 14,
-                    color: message.status == 'read' ? Colors.lightBlueAccent : Colors.white.withValues(alpha: 0.7),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 5,
+                    offset: const Offset(0, 2),
                   ),
                 ],
-              ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (message.content?.type == 'text')
+                    Text(
+                      EncryptionUtil.decrypt(message.content?.content ?? ''),
+                      style: TextStyle(
+                        color: isMe
+                            ? Colors.white
+                            : Theme.of(context).textTheme.bodyLarge?.color,
+                        fontSize: 15,
+                      ),
+                    )
+                  else if (message.content?.type == 'image')
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.file(
+                        File(message.content!.content!),
+                        width: 200,
+                        height: 200,
+                        fit: BoxFit.cover,
+                      ),
+                    )
+                  else
+                    Text(
+                      'Attachment: ${message.content?.type}',
+                      style: TextStyle(color: isMe ? Colors.white : Colors.black),
+                    ),
+
+                  if (message.edited) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      '(edited)',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: isMe
+                            ? Colors.white.withValues(alpha: 0.7)
+                            : Colors.grey,
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        "${message.createdAt.hour.toString().padLeft(2, '0')}:${message.createdAt.minute.toString().padLeft(2, '0')}",
+                        style: TextStyle(
+                          color: isMe
+                              ? Colors.white.withValues(alpha: 0.7)
+                              : Colors.grey,
+                          fontSize: 10,
+                        ),
+                      ),
+                      if (isMe) ...[
+                        const SizedBox(width: 4),
+                        Icon(
+                          message.isPending ? Icons.access_time : Icons.done_all,
+                          size: 14,
+                          color: message.status == 'read'
+                              ? Colors.lightBlueAccent
+                              : Colors.white.withValues(alpha: 0.7),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            
+            // Floating Reactions
+            if (message.reactions.isNotEmpty)
+              Positioned(
+                bottom: -8,
+                right: isMe ? 12 : null,
+                left: isMe ? null : 12,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.15),
+                        blurRadius: 4,
+                        spreadRadius: 1,
+                        offset: const Offset(0, 1),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        message.reactions.map((r) => r.emoji).toSet().join(' '),
+                        style: const TextStyle(fontSize: 14, height: 1.1),
+                      ),
+                      if (message.reactions.length > 1)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 4),
+                          child: Text(
+                            '${message.reactions.length}',
+                            style: const TextStyle(
+                              fontSize: 12, 
+                              color: Colors.grey,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showMessageOptions(
+    BuildContext context,
+    ChatDetailController controller,
+    MessageRealm message,
+    bool isMe,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: const EdgeInsets.only(bottom: 24, top: 16),
+        decoration: BoxDecoration(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Reactions
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: ['👍', '❤️', '😂', '😮', '😢', '👏'].map((emoji) {
+                  return GestureDetector(
+                    onTap: () {
+                      Get.back();
+                      controller.reactToMessage(message.id, emoji);
+                    },
+                    child: Text(emoji, style: const TextStyle(fontSize: 28)),
+                  );
+                }).toList(),
+              ),
+            ),
+            const Divider(),
+            if (isMe && message.content?.type == 'text')
+              ListTile(
+                leading: const Icon(Icons.edit, color: Colors.blue),
+                title: const Text('Edit Message'),
+                onTap: () {
+                  Get.back();
+                  controller.editMessage(message);
+                },
+              ),
+            if (isMe)
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                title: const Text(
+                  'Delete Message',
+                  style: TextStyle(color: Colors.red),
+                ),
+                onTap: () {
+                  Get.back();
+                  controller.deleteMessage(message.id);
+                },
+              ),
+            ListTile(
+              leading: const Icon(Icons.copy),
+              title: const Text('Copy Text'),
+              onTap: () {
+                // Clipboard.setData(ClipboardData(text: EncryptionUtil.decrypt(message.content?.content ?? '')));
+                Get.back();
+              },
             ),
           ],
         ),
@@ -173,75 +365,135 @@ class ChatDetailScreen extends StatelessWidget {
   }
 
   Widget _buildInputBar(BuildContext context, ChatDetailController controller) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      color: Theme.of(context).scaffoldBackgroundColor,
-      child: SafeArea(
-        child: Row(
-          children: [
-            Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey),
-                      onPressed: () {},
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Obx(() {
+          if (controller.editingMessageId.value != null) {
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: Colors.blue.withValues(alpha: 0.1),
+              child: Row(
+                children: [
+                  const Icon(Icons.edit, size: 16, color: Colors.blue),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Editing message',
+                      style: TextStyle(color: Colors.blue, fontSize: 12),
                     ),
-                    Expanded(
-                      child: TextField(
-                        controller: controller.textController,
-                        maxLines: 4,
-                        minLines: 1,
-                        decoration: const InputDecoration(
-                          hintText: 'Type a message...',
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(vertical: 10),
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: SvgPicture.asset(AssetConstants.attachmentsIcon, colorFilter: const ColorFilter.mode(Colors.grey, BlendMode.srcIn)),
-                      onPressed: () => _showAttachmentMenu(context, controller),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Obx(() {
-              final isTyping = controller.isTyping.value;
-              return GestureDetector(
-                onTap: () {
-                  if (isTyping) {
-                    controller.sendMessage();
-                  } else {
-                    // Start audio recording logic
-                  }
-                },
-                child: Container(
-                  width: 48,
-                  height: 48,
-                  decoration: const BoxDecoration(
-                    color: ColorConstants.primaryBlue,
-                    shape: BoxShape.circle,
                   ),
-                  child: isTyping
-                      ? const Icon(Icons.send, color: Colors.white, size: 20)
-                      : SvgPicture.asset(AssetConstants.micIcon, colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn), fit: BoxFit.scaleDown),
+                  InkWell(
+                    onTap: controller.cancelEdit,
+                    child: const Icon(
+                      Icons.close,
+                      size: 16,
+                      color: Colors.blue,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+          return const SizedBox.shrink();
+        }),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          color: Theme.of(context).scaffoldBackgroundColor,
+          child: SafeArea(
+            child: Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).cardColor,
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(
+                            Icons.emoji_emotions_outlined,
+                            color: Colors.grey,
+                          ),
+                          onPressed: () {},
+                        ),
+                        Expanded(
+                          child: TextField(
+                            controller: controller.textController,
+                            maxLines: 4,
+                            minLines: 1,
+                            decoration: const InputDecoration(
+                              hintText: 'Type a message...',
+                              border: InputBorder.none,
+                              contentPadding: EdgeInsets.symmetric(
+                                vertical: 10,
+                              ),
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: SvgPicture.asset(
+                            AssetConstants.attachmentsIcon,
+                            colorFilter: const ColorFilter.mode(
+                              Colors.grey,
+                              BlendMode.srcIn,
+                            ),
+                          ),
+                          onPressed: () =>
+                              _showAttachmentMenu(context, controller),
+                        ),
+                      ],
+),
+                  ),
                 ),
-              );
-            }),
-          ],
+                const SizedBox(width: 8),
+                Obx(() {
+                  final hasText = controller.hasText.value;
+                  return GestureDetector(
+                    onTap: () {
+                      if (hasText) {
+                        controller.sendMessage();
+                      } else {
+                        // Start audio recording logic
+                      }
+                    },
+                    child: Container(
+                      width: 48,
+                      height: 48,
+                      decoration: const BoxDecoration(
+                        color: ColorConstants.primaryBlue,
+                        shape: BoxShape.circle,
+                      ),
+                      child: hasText
+                          ? const Icon(
+                              Icons.send,
+                              color: Colors.white,
+                              size: 20,
+                            )
+                          : SvgPicture.asset(
+                              AssetConstants.micIcon,
+                              colorFilter: const ColorFilter.mode(
+                                Colors.white,
+                                BlendMode.srcIn,
+                              ),
+                              fit: BoxFit.scaleDown,
+                            ),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
         ),
-      ),
+      ],
     );
   }
 
-  void _showAttachmentMenu(BuildContext context, ChatDetailController controller) {
+  void _showAttachmentMenu(
+    BuildContext context,
+    ChatDetailController controller,
+  ) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -254,14 +506,18 @@ class ChatDetailScreen extends StatelessWidget {
         },
         onCameraTap: () async {
           final ImagePicker picker = ImagePicker();
-          final XFile? image = await picker.pickImage(source: ImageSource.camera);
+          final XFile? image = await picker.pickImage(
+            source: ImageSource.camera,
+          );
           if (image != null) {
             controller.sendAttachment(image.path, 'image', '');
           }
         },
         onGalleryTap: () async {
           final ImagePicker picker = ImagePicker();
-          final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+          final XFile? image = await picker.pickImage(
+            source: ImageSource.gallery,
+          );
           if (image != null) {
             controller.sendAttachment(image.path, 'image', '');
           }

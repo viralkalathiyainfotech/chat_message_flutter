@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../../../core/database/realm_models.dart';
-import '../../data/chat_repository.dart';
+import '../../domain/repositories/chat_repository.dart';
 
 class NewChatController extends GetxController {
   final ChatRepository _chatRepository = Get.find<ChatRepository>();

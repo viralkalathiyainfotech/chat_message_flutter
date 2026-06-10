@@ -13,5 +13,5 @@ class AssetConstants {
   static const String checkShieldIcon = '$iconPath/check_shield.svg';
   static const String micIcon = '$iconPath/mic.svg';
   static const String pinIcon = '$iconPath/pin.svg';
-  static const String attachmentsIcon = '$iconPath/attachments.svg';
+  static const String attachmentsIcon = '$iconPath/attechments.svg';
 }

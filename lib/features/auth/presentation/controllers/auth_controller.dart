@@ -41,7 +41,7 @@ class AuthController extends GetxController {
     isLoading.value = true;
     mobileNumber.value = phoneController.text.trim();
     
-    final result = await sendOtpUseCase(mobileNumber.value);
+    final result = await sendOtpUseCase("+91${mobileNumber.value}");
     
     isLoading.value = false;
     
@@ -57,7 +57,7 @@ class AuthController extends GetxController {
   Future<void> verifyOtp(String otp) async {
     isLoading.value = true;
     
-    final result = await verifyOtpUseCase(mobileNumber.value, otp);
+    final result = await verifyOtpUseCase("+91${mobileNumber.value}", otp);
     
     isLoading.value = false;
     

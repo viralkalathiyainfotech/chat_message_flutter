@@ -1,7 +1,7 @@
 import 'package:get/get.dart';
 import '../../../../services/storage_service.dart';
 import '../../../../core/routes/app_routes.dart';
-import '../../../chats/data/chat_repository.dart';
+import '../../../chats/domain/repositories/chat_repository.dart';
 
 class SplashController extends GetxController {
   final StorageService _storageService = Get.find<StorageService>();

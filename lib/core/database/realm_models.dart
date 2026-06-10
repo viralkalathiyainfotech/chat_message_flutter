@@ -27,6 +27,12 @@ class _MessageContentRealm {
 }
 
 @RealmModel()
+class _MessageReactionRealm {
+  late String emoji;
+  late String userIdsJson;
+}
+
+@RealmModel()
 class _MessageRealm {
   @PrimaryKey()
   late String id;
@@ -35,6 +41,7 @@ class _MessageRealm {
   late _MessageContentRealm? content;
   late String status; // "sent", "delivered", "read", "deleted"
   late bool edited;
+  late List<_MessageReactionRealm> reactions;
   late DateTime createdAt;
   late DateTime updatedAt;
   late bool isPending; // For offline queued messages

@@ -1,12 +1,14 @@
+import 'dart:convert';
 import 'package:chat_app/core/network/api_service.dart';
 import 'package:get/get.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:permission_handler/permission_handler.dart';
-import '../../../../core/database/realm_helper.dart';
-import '../../../../core/database/realm_models.dart';
-import '../../../../services/connectivity_service.dart';
-import '../../../../services/socket_service.dart';
-import '../../../../services/storage_service.dart';
+import '../../../../../core/database/realm_helper.dart';
+import '../../../../../core/database/realm_models.dart';
+import '../../../../../services/connectivity_service.dart';
+import '../../../../../services/socket_service.dart';
+import '../../../../../services/storage_service.dart';
+import '../../../../../utils/encryption_util.dart';
 import 'package:uuid/uuid.dart';
 
 class ChatRepository {
@@ -61,10 +63,10 @@ class ChatRepository {
     ).toList();
   }
 
-  Future<List<MessageRealm>> getMessages(String userId) async {
+  Future<List<MessageRealm>> getMessages(String userId, {bool fetchFromNetwork = true}) async {
     final localMessages = _realmHelper.getMessagesForUser(userId);
 
-    if (_connectivity.isOnline.value) {
+    if (fetchFromNetwork && _connectivity.isOnline.value) {
       try {
         final response = await _apiService.dio.post('/allMessages', data: {'selectedId': userId});
         if (response.statusCode == 200) {
@@ -75,11 +77,21 @@ class ChatRepository {
               contentData['type'] ?? 'text',
               content: contentData['content'],
               fileUrl: contentData['fileUrl'],
-              fileType: contentData['fileType'],
-              size: contentData['size'],
-              timestamp: contentData['timestamp'],
-              status: contentData['status'],
+              fileType: contentData['fileType']?.toString(),
+              size: contentData['size']?.toString(),
+              timestamp: contentData['timestamp']?.toString(),
+              status: contentData['status']?.toString(),
             );
+
+            List<MessageReactionRealm> parsedReactions = [];
+            if (data['reactions'] != null && data['reactions'] is List) {
+              parsedReactions = (data['reactions'] as List).map((r) {
+                return MessageReactionRealm(
+                  r['emoji']?.toString() ?? '',
+                  jsonEncode([r['userId']?.toString() ?? '']), // Backend sends userId for each reaction
+                );
+              }).toList();
+            }
 
             return MessageRealm(
               data['_id'] ?? '',
@@ -91,6 +103,7 @@ class ChatRepository {
               DateTime.tryParse(data['updatedAt'] ?? '') ?? DateTime.now(),
               false,
               content: contentRealm,
+              reactions: parsedReactions,
             );
           }).toList();
 
@@ -105,15 +118,65 @@ class ChatRepository {
     return localMessages;
   }
 
+  Future<void> saveIncomingMessage(Map<String, dynamic> data) async {
+    try {
+      final contentData = data['content'] ?? {};
+      final contentRealm = MessageContentRealm(
+        contentData['type'] ?? 'text',
+        content: contentData['content'],
+        fileUrl: contentData['fileUrl'],
+        fileType: contentData['fileType']?.toString(),
+        size: contentData['size']?.toString(),
+        timestamp: contentData['timestamp']?.toString(),
+        status: contentData['status']?.toString(),
+      );
+
+      List<MessageReactionRealm> parsedReactions = [];
+      if (data['reactions'] != null && data['reactions'] is List) {
+        parsedReactions = (data['reactions'] as List).map((r) {
+          return MessageReactionRealm(
+            r['emoji']?.toString() ?? '',
+            jsonEncode([r['userId']?.toString() ?? '']),
+          );
+        }).toList();
+      }
+
+      final newMsg = MessageRealm(
+        data['_id'] ?? data['messageId'] ?? _uuid.v4(),
+        data['sender'] ?? data['senderId'] ?? '',
+        data['receiver'] ?? data['receiverId'] ?? '',
+        data['status'] ?? 'delivered',
+        data['edited'] ?? false,
+        DateTime.tryParse(data['createdAt'] ?? '') ?? DateTime.now(),
+        DateTime.tryParse(data['updatedAt'] ?? '') ?? DateTime.now(),
+        false,
+        content: contentRealm,
+        reactions: parsedReactions,
+      );
+
+      _realmHelper.saveMessage(newMsg);
+    } catch (e) {
+      Get.log('Error saving incoming message: $e', isError: true);
+    }
+  }
+
   Future<void> sendMessage(String receiverId, String content, String type) async {
     final tempId = _uuid.v4();
     final now = DateTime.now();
+
+    final userId = Get.find<StorageService>().getUserId() ?? 'myUserId';
+    
+    // Encrypt the content if it's text
+    String finalContent = content;
+    if (type == 'text') {
+      finalContent = EncryptionUtil.encrypt(content);
+    }
     
     // Save locally first
-    final contentRealm = MessageContentRealm(type, content: content);
+    final contentRealm = MessageContentRealm(type, content: finalContent);
     final localMessage = MessageRealm(
       tempId,
-      'myUserId', // TODO: Get actual current user ID
+      userId,
       receiverId,
       'sent',
       false,
@@ -126,14 +189,14 @@ class ChatRepository {
 
     if (_connectivity.isOnline.value) {
       // Send directly
-      await _sendRealtimeMessage(receiverId, content, type, tempId);
+      await _sendRealtimeMessage(receiverId, finalContent, type, tempId);
     } else {
       // Add to offline queue
       final queuedMsg = OfflineQueueRealm(
         tempId,
         receiverId,
         type,
-        content,
+        finalContent,
         now,
       );
       _realmHelper.addToQueue(queuedMsg);
@@ -155,6 +218,69 @@ class ChatRepository {
       'isBlocked': false,
       'tempMessageId': tempId,
     });
+  }
+
+  void updateMessageStatusLocally(String messageId, String status) {
+    _realmHelper.updateMessageStatus(messageId, status);
+  }
+
+  void updateMessageContentLocally(String messageId, String newContent) {
+    _realmHelper.updateMessageContent(messageId, newContent);
+  }
+
+  void handleMessageReactionLocally(String messageId, String userId, String emoji, String action) {
+    _realmHelper.handleMessageReactionLocally(messageId, userId, emoji, action);
+  }
+
+  void replaceTempMessageIdLocally(String tempId, String newId, String status) {
+    _realmHelper.replaceTempMessageId(tempId, newId, status);
+  }
+
+  Future<void> deleteMessage(String messageId) async {
+    _realmHelper.deleteMessage(messageId);
+    if (_connectivity.isOnline.value) {
+      _socketService.emitDeleteMessage(messageId);
+    }
+  }
+
+  Future<void> editMessage(String messageId, String newContent, String type) async {
+    String finalContent = newContent;
+    if (type == 'text') {
+      finalContent = EncryptionUtil.encrypt(newContent);
+    }
+    
+    _realmHelper.updateMessageContent(messageId, finalContent);
+
+    if (_connectivity.isOnline.value) {
+      _socketService.emitUpdateMessage({
+        'messageId': messageId,
+        'content': {
+          'type': type,
+          'content': finalContent,
+        }
+      });
+    }
+  }
+
+  Future<void> reactToMessage(String messageId, String emoji) async {
+    if (_connectivity.isOnline.value) {
+      final userId = Get.find<StorageService>().getUserId();
+      _socketService.emitMessageReaction({
+        'messageId': messageId,
+        'emoji': emoji,
+        'userId': userId,
+      });
+    }
+  }
+  
+  Future<void> removeReaction(String messageId) async {
+    if (_connectivity.isOnline.value) {
+      final userId = Get.find<StorageService>().getUserId();
+      _socketService.emitRemoveMessageReaction({
+        'messageId': messageId,
+        'userId': userId,
+      });
+    }
   }
 
   Future<List<UserRealm>> getUserList() async {
@@ -216,7 +342,7 @@ class ChatRepository {
         final formattedPhone = rawPhone.replaceAll(RegExp(r'\s+|-|\(|\)'), ''); // Basic normalization
         final displayName = dc.displayName;
         
-        newLocalContacts.add(LocalContactRealm(dc.id ?? '', displayName ?? '', formattedPhone ?? ''));
+        newLocalContacts.add(LocalContactRealm(dc.id ?? '', displayName ?? '', formattedPhone));
         
         apiContactsPayload.add({
           "id": dc.id,

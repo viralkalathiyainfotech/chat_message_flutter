@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:realm/realm.dart';
 import 'realm_models.dart';
 
@@ -13,9 +14,10 @@ class RealmHelper {
       UserRealm.schema,
       MessageContentRealm.schema,
       MessageRealm.schema,
+      MessageReactionRealm.schema,
       OfflineQueueRealm.schema,
       LocalContactRealm.schema,
-    ]);
+    ], schemaVersion: 2);
     _realm = Realm(config);
   }
 
@@ -46,6 +48,113 @@ class RealmHelper {
   void saveMessage(MessageRealm msg) {
     _realm.write(() {
       _realm.add(msg, update: true);
+    });
+  }
+
+  void updateMessageStatus(String messageId, String status) {
+    _realm.write(() {
+      final msg = _realm.find<MessageRealm>(messageId);
+      if (msg != null) {
+        msg.status = status;
+      }
+    });
+  }
+
+  void replaceTempMessageId(String tempId, String newId, String status) {
+    _realm.write(() {
+      final oldMsg = _realm.find<MessageRealm>(tempId);
+      if (oldMsg != null) {
+        final newMsg = MessageRealm(
+          newId,
+          oldMsg.senderId,
+          oldMsg.receiverId,
+          status,
+          oldMsg.edited,
+          oldMsg.createdAt,
+          oldMsg.updatedAt,
+          false,
+          content: oldMsg.content != null ? MessageContentRealm(
+            oldMsg.content!.type,
+            content: oldMsg.content!.content,
+            fileUrl: oldMsg.content!.fileUrl,
+            fileType: oldMsg.content!.fileType,
+            size: oldMsg.content!.size,
+            timestamp: oldMsg.content!.timestamp,
+            status: oldMsg.content!.status,
+          ) : null,
+          reactions: oldMsg.reactions.map((r) => MessageReactionRealm(r.emoji, r.userIdsJson)).toList(),
+        );
+        _realm.delete(oldMsg);
+        _realm.add(newMsg, update: true);
+      }
+    });
+  }
+
+  void deleteMessage(String messageId) {
+    _realm.write(() {
+      final msg = _realm.find<MessageRealm>(messageId);
+      if (msg != null) {
+        _realm.delete(msg);
+      }
+    });
+  }
+
+  void updateMessageContent(String messageId, String newContent) {
+    _realm.write(() {
+      final msg = _realm.find<MessageRealm>(messageId);
+      if (msg != null && msg.content != null) {
+        msg.content!.content = newContent;
+        msg.edited = true;
+      }
+    });
+  }
+
+  void updateMessageReactions(String messageId, List<MessageReactionRealm> reactions) {
+    _realm.write(() {
+      final msg = _realm.find<MessageRealm>(messageId);
+      if (msg != null) {
+        msg.reactions.clear();
+        msg.reactions.addAll(reactions);
+      }
+    });
+  }
+
+  void handleMessageReactionLocally(String messageId, String userId, String emoji, String action) {
+    _realm.write(() {
+      final msg = _realm.find<MessageRealm>(messageId);
+      if (msg != null) {
+        // Find existing reaction for this emoji
+        int existingIndex = -1;
+        for (int i = 0; i < msg.reactions.length; i++) {
+          if (msg.reactions[i].emoji == emoji) {
+            existingIndex = i;
+            break;
+          }
+        }
+
+        if (action == 'added') {
+          if (existingIndex != -1) {
+            // Check if user is already in JSON
+            List<dynamic> users = jsonDecode(msg.reactions[existingIndex].userIdsJson);
+            if (!users.contains(userId)) {
+              users.add(userId);
+              msg.reactions[existingIndex].userIdsJson = jsonEncode(users);
+            }
+          } else {
+            msg.reactions.add(MessageReactionRealm(emoji, jsonEncode([userId])));
+          }
+        } else if (action == 'removed') {
+          if (existingIndex != -1) {
+            List<dynamic> users = jsonDecode(msg.reactions[existingIndex].userIdsJson);
+            users.remove(userId);
+            if (users.isEmpty) {
+              msg.reactions.removeAt(existingIndex);
+            } else {
+              msg.reactions[existingIndex].userIdsJson = jsonEncode(users);
+            }
+          }
+        }
+      }
     });
   }
 

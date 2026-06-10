@@ -6,6 +6,10 @@
 	<true/>
 	<key>NSContactsUsageDescription</key>
 	<string>This app requires contacts access to connect you with friends already on ChatApp.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>This app requires camera access for video calls.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app requires microphone access for voice and video calls.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

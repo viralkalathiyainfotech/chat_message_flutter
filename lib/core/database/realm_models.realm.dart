@@ -264,6 +264,75 @@ class MessageContentRealm extends _MessageContentRealm
   SchemaObject get objectSchema => RealmObjectBase.getSchema(this) ?? schema;
 }
 
+class MessageReactionRealm extends _MessageReactionRealm
+    with RealmEntity, RealmObjectBase, RealmObject {
+  MessageReactionRealm(String emoji, String userIdsJson) {
+    RealmObjectBase.set(this, 'emoji', emoji);
+    RealmObjectBase.set(this, 'userIdsJson', userIdsJson);
+  }
+
+  MessageReactionRealm._();
+
+  @override
+  String get emoji => RealmObjectBase.get<String>(this, 'emoji') as String;
+  @override
+  set emoji(String value) => RealmObjectBase.set(this, 'emoji', value);
+
+  @override
+  String get userIdsJson =>
+      RealmObjectBase.get<String>(this, 'userIdsJson') as String;
+  @override
+  set userIdsJson(String value) =>
+      RealmObjectBase.set(this, 'userIdsJson', value);
+
+  @override
+  Stream<RealmObjectChanges<MessageReactionRealm>> get changes =>
+      RealmObjectBase.getChanges<MessageReactionRealm>(this);
+
+  @override
+  Stream<RealmObjectChanges<MessageReactionRealm>> changesFor([
+    List<String>? keyPaths,
+  ]) => RealmObjectBase.getChangesFor<MessageReactionRealm>(this, keyPaths);
+
+  @override
+  MessageReactionRealm freeze() =>
+      RealmObjectBase.freezeObject<MessageReactionRealm>(this);
+
+  EJsonValue toEJson() {
+    return <String, dynamic>{
+      'emoji': emoji.toEJson(),
+      'userIdsJson': userIdsJson.toEJson(),
+    };
+  }
+
+  static EJsonValue _toEJson(MessageReactionRealm value) => value.toEJson();
+  static MessageReactionRealm _fromEJson(EJsonValue ejson) {
+    if (ejson is! Map<String, dynamic>) return raiseInvalidEJson(ejson);
+    return switch (ejson) {
+      {'emoji': EJsonValue emoji, 'userIdsJson': EJsonValue userIdsJson} =>
+        MessageReactionRealm(fromEJson(emoji), fromEJson(userIdsJson)),
+      _ => raiseInvalidEJson(ejson),
+    };
+  }
+
+  static final schema = () {
+    RealmObjectBase.registerFactory(MessageReactionRealm._);
+    register(_toEJson, _fromEJson);
+    return const SchemaObject(
+      ObjectType.realmObject,
+      MessageReactionRealm,
+      'MessageReactionRealm',
+      [
+        SchemaProperty('emoji', RealmPropertyType.string),
+        SchemaProperty('userIdsJson', RealmPropertyType.string),
+      ],
+    );
+  }();
+
+  @override
+  SchemaObject get objectSchema => RealmObjectBase.getSchema(this) ?? schema;
+}
+
 class MessageRealm extends _MessageRealm
     with RealmEntity, RealmObjectBase, RealmObject {
   MessageRealm(
@@ -276,6 +345,7 @@ class MessageRealm extends _MessageRealm
     DateTime updatedAt,
     bool isPending, {
     MessageContentRealm? content,
+    Iterable<MessageReactionRealm> reactions = const [],
   }) {
     RealmObjectBase.set(this, 'id', id);
     RealmObjectBase.set(this, 'senderId', senderId);
@@ -283,6 +353,11 @@ class MessageRealm extends _MessageRealm
     RealmObjectBase.set(this, 'content', content);
     RealmObjectBase.set(this, 'status', status);
     RealmObjectBase.set(this, 'edited', edited);
+    RealmObjectBase.set<RealmList<MessageReactionRealm>>(
+      this,
+      'reactions',
+      RealmList<MessageReactionRealm>(reactions),
+    );
     RealmObjectBase.set(this, 'createdAt', createdAt);
     RealmObjectBase.set(this, 'updatedAt', updatedAt);
     RealmObjectBase.set(this, 'isPending', isPending);
@@ -327,6 +402,14 @@ class MessageRealm extends _MessageRealm
   set edited(bool value) => RealmObjectBase.set(this, 'edited', value);
 
   @override
+  RealmList<MessageReactionRealm> get reactions =>
+      RealmObjectBase.get<MessageReactionRealm>(this, 'reactions')
+          as RealmList<MessageReactionRealm>;
+  @override
+  set reactions(covariant RealmList<MessageReactionRealm> value) =>
+      throw RealmUnsupportedSetError();
+
+  @override
   DateTime get createdAt =>
       RealmObjectBase.get<DateTime>(this, 'createdAt') as DateTime;
   @override
@@ -365,6 +448,7 @@ class MessageRealm extends _MessageRealm
       'content': content.toEJson(),
       'status': status.toEJson(),
       'edited': edited.toEJson(),
+      'reactions': reactions.toEJson(),
       'createdAt': createdAt.toEJson(),
       'updatedAt': updatedAt.toEJson(),
       'isPending': isPending.toEJson(),
@@ -395,6 +479,7 @@ class MessageRealm extends _MessageRealm
           fromEJson(updatedAt),
           fromEJson(isPending),
           content: fromEJson(ejson['content']),
+          reactions: fromEJson(ejson['reactions']),
         ),
       _ => raiseInvalidEJson(ejson),
     };
@@ -419,6 +504,12 @@ class MessageRealm extends _MessageRealm
         ),
         SchemaProperty('status', RealmPropertyType.string),
         SchemaProperty('edited', RealmPropertyType.bool),
+        SchemaProperty(
+          'reactions',
+          RealmPropertyType.object,
+          linkTarget: 'MessageReactionRealm',
+          collectionType: RealmCollectionType.list,
+        ),
         SchemaProperty('createdAt', RealmPropertyType.timestamp),
         SchemaProperty('updatedAt', RealmPropertyType.timestamp),
         SchemaProperty('isPending', RealmPropertyType.bool),

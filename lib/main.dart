@@ -8,6 +8,8 @@ import 'core/routes/app_pages.dart';
 import 'core/routes/app_routes.dart';
 import 'services/storage_service.dart';
 import 'services/connectivity_service.dart';
+import 'services/call_service.dart';
+import 'features/call/presentation/controllers/call_controller.dart';
 import 'services/sync_service.dart';
 import 'services/socket_service.dart';
 import 'core/database/realm_helper.dart';
@@ -25,6 +27,8 @@ void main() async {
   // Initialize Network & Sync
   Get.put(ConnectivityService());
   Get.put(SocketService());
+  Get.put(CallService());
+  Get.put(CallController());
   Get.put(SyncService());
   
   // Initialize ThemeController

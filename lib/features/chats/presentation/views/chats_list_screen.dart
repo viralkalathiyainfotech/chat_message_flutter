@@ -1,3 +1,4 @@
+import 'package:chat_app/core/database/realm_models.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -53,7 +54,7 @@ class ChatsListScreen extends StatelessWidget {
           itemCount: controller.recentChats.length,
           separatorBuilder: (context, index) => const Divider(height: 1, indent: 76),
           itemBuilder: (context, index) {
-            final chat = controller.recentChats[index];
+            final UserRealm chat = controller.recentChats[index];
             return _buildChatItem(chat, context);
           },
         );
@@ -68,8 +69,7 @@ class ChatsListScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildChatItem(dynamic chat, BuildContext context) {
-    // We will update this when we have the real model, for now use standard chat item
+  Widget _buildChatItem(UserRealm chat, BuildContext context) {
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       leading: Stack(

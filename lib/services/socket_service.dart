@@ -8,12 +8,24 @@ class SocketService extends GetxService {
   io.Socket? socket;
   final StorageService _storageService = Get.find<StorageService>();
   final RxBool isConnected = false.obs;
-  
+
   // Callbacks for events
   Function(Map<String, dynamic>)? onReceiveMessage;
   Function(Map<String, dynamic>)? onMessageSentStatus;
   Function(Map<String, dynamic>)? onMessageRead;
   Function(Map<String, dynamic>)? onUserTyping;
+  Function(Map<String, dynamic>)? onMessageUpdated;
+  Function(dynamic)? onMessageDeleted; // Backend might send an ID or Map
+  Function(Map<String, dynamic>)? onMessageReaction;
+  Function(Map<String, dynamic>)? onRemoveMessageReaction;
+  Function(List<String>)? onUserStatusChanged;
+
+  // WebRTC Call Callbacks
+  Function(Map<String, dynamic>)? onIncomingCall;
+  Function(Map<String, dynamic>)? onCallAccepted;
+  Function(Map<String, dynamic>)? onCallSignal;
+  Function(Map<String, dynamic>)? onEndCall;
+  Function(Map<String, dynamic>)? onUserInCall;
 
   @override
   void onInit() {
@@ -21,11 +33,28 @@ class SocketService extends GetxService {
     _initSocket();
   }
 
+  void connect() {
+    if (socket == null) {
+      _initSocket();
+    } else if (!isConnected.value) {
+      print('==== MANUALLY CONNECTING SOCKET ====');
+      socket?.connect();
+    }
+  }
+
+  void disconnect() {
+    socket?.disconnect();
+  }
+
   Future<void> _initSocket() async {
+    print('==== INITIALIZING SOCKET ====');
     final token = _storageService.getToken();
     final userId = _storageService.getUserId();
+    
+    print('==== SOCKET PARAMS: token exists? ${token != null}, userId: $userId ====');
+    
     if (token == null || userId == null) {
-      Get.log('Cannot init socket: Token or UserId missing', isError: true);
+      print('==== CANNOT INIT SOCKET: Token or UserId missing ====');
       return;
     }
 
@@ -38,51 +67,151 @@ class SocketService extends GetxService {
 
     final String baseUrl = NetworkConstants.baseUrl.replaceAll('/api', '');
 
-    socket = io.io(baseUrl, io.OptionBuilder()
-      .setTransports(['websocket', 'polling'])
-      .setReconnectionAttempts(5)
-      .setReconnectionDelay(1000)
-      .setTimeout(20000)
-      .setAuth({
-        'token': token,
-        'deviceId': deviceId,
-        'deviceType': 'mobile',
-      })
-      .build());
+    socket = io.io(
+      baseUrl,
+      io.OptionBuilder()
+          .setTransports(['websocket', 'polling'])
+          .disableAutoConnect() // Critical: Prevents race condition
+          .setReconnectionAttempts(5)
+          .setReconnectionDelay(1000)
+          .setTimeout(20000)
+          .setAuth({
+            'token': token,
+            'deviceId': deviceId,
+            'deviceType': 'mobile',
+          })
+          .build(),
+    );
+
+    socket?.onAny((event, data) {
+      print('SOCKET EVENT => $event');
+      print('SOCKET DATA => $data');
+    });
+
+    socket?.onError((error) {
+      print('SOCKET ERROR => $error');
+    });
+
+    socket?.onReconnect((attempt) {
+      print('RECONNECTED => $attempt');
+    });
+
+    socket?.onReconnectAttempt((attempt) {
+      print('RECONNECT ATTEMPT => $attempt');
+    });
+
+    socket?.onReconnectError((error) {
+      print('RECONNECT ERROR => $error');
+    });
+
+    socket?.onReconnectFailed((_) {
+      print('RECONNECT FAILED');
+    });
+
+    socket?.onPing((_) {
+      print('PING');
+    });
+
+    socket?.onPong((_) {
+      print('PONG');
+    });
 
     socket?.onConnect((_) {
-      Get.log('Socket connection established');
+      print('==== SOCKET CONNECTION ESTABLISHED SUCCESSFULLY ====');
       isConnected.value = true;
       socket?.emit('user-login', userId);
       socket?.emit('join-device-room', deviceId);
     });
 
     socket?.onConnectError((error) {
-      Get.log('Socket connection error: $error', isError: true);
+      print('==== SOCKET CONNECTION ERROR: $error ====');
       isConnected.value = false;
     });
 
     socket?.onDisconnect((_) {
-      Get.log('Socket disconnected');
+      print('==== SOCKET DISCONNECTED ====');
       isConnected.value = false;
     });
 
     // Listen to chat events
     socket?.on('receive-message', (data) {
-      if (onReceiveMessage != null) onReceiveMessage!(data);
+      final map = _safeCast(data);
+      if (map != null && onReceiveMessage != null) onReceiveMessage!(map);
     });
 
     socket?.on('message-sent-status', (data) {
-      if (onMessageSentStatus != null) onMessageSentStatus!(data);
+      final map = _safeCast(data);
+      if (map != null && onMessageSentStatus != null) onMessageSentStatus!(map);
     });
 
     socket?.on('message-read', (data) {
-      if (onMessageRead != null) onMessageRead!(data);
+      final map = _safeCast(data);
+      if (map != null && onMessageRead != null) onMessageRead!(map);
     });
 
     socket?.on('user-typing', (data) {
-      if (onUserTyping != null) onUserTyping!(data);
+      final map = _safeCast(data);
+      if (map != null && onUserTyping != null) onUserTyping!(map);
     });
+
+    socket?.on('message-updated', (data) {
+      final map = _safeCast(data);
+      if (map != null && onMessageUpdated != null) onMessageUpdated!(map);
+    });
+
+    socket?.on('message-deleted', (data) {
+      if (onMessageDeleted != null)
+        onMessageDeleted!(
+          data is List && data.isNotEmpty ? data.first : data,
+        ); // Could be a String ID
+    });
+
+    socket?.on('message-reaction', (data) {
+      final map = _safeCast(data);
+      if (map != null && onMessageReaction != null) onMessageReaction!(map);
+    });
+
+    socket?.on('remove-message-reaction', (data) {
+      final map = _safeCast(data);
+      if (map != null && onRemoveMessageReaction != null)
+        onRemoveMessageReaction!(map);
+    });
+
+    socket?.on('user-status-changed', (data) {
+      final list = _safeCastList(data);
+      if (list != null && onUserStatusChanged != null) {
+        onUserStatusChanged!(list);
+      }
+    });
+
+    // WebRTC Listeners
+    socket?.on('call-requested', (data) {
+      final map = _safeCast(data);
+      if (map != null && onIncomingCall != null) onIncomingCall!(map);
+    });
+
+    socket?.on('call-accepted', (data) {
+      final map = _safeCast(data);
+      if (map != null && onCallAccepted != null) onCallAccepted!(map);
+    });
+
+    socket?.on('call-signal', (data) {
+      final map = _safeCast(data);
+      if (map != null && onCallSignal != null) onCallSignal!(map);
+    });
+
+    socket?.on('call-ended', (data) {
+      final map = _safeCast(data);
+      if (map != null && onEndCall != null) onEndCall!(map);
+    });
+
+    socket?.on('user-in-call', (data) {
+      final map = _safeCast(data);
+      if (map != null && onUserInCall != null) onUserInCall!(map);
+    });
+
+    print('==== LISTENERS ATTACHED, NOW CONNECTING... ====');
+    socket?.connect();
   }
 
   void emitPrivateMessage(Map<String, dynamic> messageData) {
@@ -112,9 +241,92 @@ class SocketService extends GetxService {
     }
   }
 
+  void emitUpdateMessage(Map<String, dynamic> updateData) {
+    if (isConnected.value) {
+      socket?.emit('update-message', updateData);
+    }
+  }
+
+  void emitDeleteMessage(String messageId) {
+    if (isConnected.value) {
+      socket?.emit('delete-message', messageId);
+    }
+  }
+
+  void emitMessageReaction(Map<String, dynamic> reactionData) {
+    if (isConnected.value) {
+      socket?.emit('message-reaction', reactionData);
+    }
+  }
+
+  void emitRemoveMessageReaction(Map<String, dynamic> reactionData) {
+    if (isConnected.value) {
+      socket?.emit('remove-message-reaction', reactionData);
+    }
+  }
+
+  void getOnlineUsers() {
+    if (isConnected.value) {
+      socket?.emitWithAck('get-online-users', {}, ack: (data) {
+        final list = _safeCastList(data);
+        if (list != null && onUserStatusChanged != null) {
+          onUserStatusChanged!(list);
+        }
+      });
+    }
+  }
+
+  // Helper to safely cast payload to Map
+  Map<String, dynamic>? _safeCast(dynamic data) {
+    dynamic payload = data is List
+        ? (data.isNotEmpty ? data.first : null)
+        : data;
+    if (payload is Map) {
+      return Map<String, dynamic>.from(payload);
+    }
+    return null;
+  }
+
+  // Helper to safely cast payload to List of Strings
+  List<String>? _safeCastList(dynamic data) {
+    dynamic payload = data is List && data.isNotEmpty && data.first is List
+        ? data.first
+        : (data is List ? data : null);
+        
+    if (payload is List) {
+      return payload.map((e) => e.toString()).toList();
+    }
+    return null;
+  }
+
   @override
   void onClose() {
     socket?.disconnect();
     super.onClose();
+  }
+
+  // --- WebRTC Emits ---
+  void emitCallRequest(Map<String, dynamic> data) {
+    if (isConnected.value) {
+      socket?.emit('call-request', data);
+    }
+  }
+
+  void emitCallAccept(Map<String, dynamic> data) {
+    if (isConnected.value) {
+      socket?.emit('call-accept', data);
+    }
+  }
+
+  void emitCallSignal(Map<String, dynamic> data) {
+    if (isConnected.value) {
+      socket?.emit('call-signal', data);
+    }
+  }
+
+  void emitEndCall(Map<String, dynamic> data) {
+    if (isConnected.value) {
+      socket?.emit('end-call', data);
+    }
   }
 }
