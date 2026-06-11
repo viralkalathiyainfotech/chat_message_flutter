@@ -8,8 +8,14 @@ class CallScreen extends GetView<CallController> {
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async => false, // Prevent back button during call
+    return PopScope(
+      canPop: false, // Prevent back button during call
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) {
+          controller.callService.endCall();
+          Get.back();
+        }
+      },
       child: Scaffold(
         backgroundColor: Colors.black,
         body: SafeArea(

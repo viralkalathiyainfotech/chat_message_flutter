@@ -24,6 +24,10 @@ class _MessageContentRealm {
   late String? size;
   late String? timestamp;
   late String? status;
+  late String? callType;
+  late String? duration;
+  late String? callfrom;
+  late String? joined;
 }
 
 @RealmModel()

@@ -17,7 +17,7 @@ class RealmHelper {
       MessageReactionRealm.schema,
       OfflineQueueRealm.schema,
       LocalContactRealm.schema,
-    ], schemaVersion: 2);
+    ], schemaVersion: 3);
     _realm = Realm(config);
   }
 
@@ -160,6 +160,15 @@ class RealmHelper {
 
   List<MessageRealm> getMessagesForUser(String userId) {
     return _realm.query<MessageRealm>('senderId == \$0 OR receiverId == \$0 SORT(createdAt ASC)', [userId]).toList();
+  }
+
+  MessageRealm? getLastMessageForUser(String userId) {
+    final messages = _realm.query<MessageRealm>('senderId == \$0 OR receiverId == \$0 SORT(createdAt DESC)', [userId]);
+    return messages.isNotEmpty ? messages.first : null;
+  }
+
+  List<MessageRealm> getPendingMessages() {
+    return _realm.query<MessageRealm>('isPending == true').toList();
   }
 
   // --- Offline Queue ---

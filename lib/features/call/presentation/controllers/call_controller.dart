@@ -13,7 +13,11 @@ class CallController extends GetxController {
     // Listen for incoming calls
     ever(callService.isReceivingCall, (bool isReceiving) {
       if (isReceiving && callService.incomingCallData != null) {
-        _showIncomingCallOverlay();
+        // Force close any existing dialogs to ensure the incoming call is visible
+        if (Get.isDialogOpen ?? false) {
+          Get.back();
+        }
+        Future.microtask(() => _showIncomingCallOverlay());
       } else {
         if (Get.isDialogOpen ?? false) {
           Get.back(); // Dismiss incoming call dialog if dismissed from backend

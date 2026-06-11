@@ -19,6 +19,8 @@ class SocketService extends GetxService {
   Function(Map<String, dynamic>)? onMessageReaction;
   Function(Map<String, dynamic>)? onRemoveMessageReaction;
   Function(List<String>)? onUserStatusChanged;
+  
+  final RxList<String> onlineUsers = <String>[].obs;
 
   // WebRTC Call Callbacks
   Function(Map<String, dynamic>)? onIncomingCall;
@@ -144,7 +146,7 @@ class SocketService extends GetxService {
       if (map != null && onMessageSentStatus != null) onMessageSentStatus!(map);
     });
 
-    socket?.on('message-read', (data) {
+    socket?.on('message-read-update', (data) {
       final map = _safeCast(data);
       if (map != null && onMessageRead != null) onMessageRead!(map);
     });
@@ -179,8 +181,11 @@ class SocketService extends GetxService {
 
     socket?.on('user-status-changed', (data) {
       final list = _safeCastList(data);
-      if (list != null && onUserStatusChanged != null) {
-        onUserStatusChanged!(list);
+      if (list != null) {
+        onlineUsers.value = list;
+        if (onUserStatusChanged != null) {
+          onUserStatusChanged!(list);
+        }
       }
     });
 
@@ -267,12 +272,10 @@ class SocketService extends GetxService {
 
   void getOnlineUsers() {
     if (isConnected.value) {
-      socket?.emitWithAck('get-online-users', {}, ack: (data) {
-        final list = _safeCastList(data);
-        if (list != null && onUserStatusChanged != null) {
-          onUserStatusChanged!(list);
-        }
-      });
+      final userId = _storageService.getUserId();
+      if (userId != null) {
+        socket?.emit('user-login', userId);
+      }
     }
   }
 

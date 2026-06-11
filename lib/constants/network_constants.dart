@@ -1,5 +1,5 @@
 class NetworkConstants {
-  static const String baseUrl = 'http://192.168.29.139:5000/api';
+  static const String baseUrl = 'http://192.168.29.189:5000/api';
   
   // Auth Endpoints
   static const String mobileOtp = '/mobile-otp';

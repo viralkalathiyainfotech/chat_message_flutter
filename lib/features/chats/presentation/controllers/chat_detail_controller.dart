@@ -16,6 +16,7 @@ class ChatDetailController extends GetxController {
   final RxBool isLoading = true.obs;
   final RxBool isTyping = false.obs;
   final RxBool isRemoteTyping = false.obs;
+  final RxBool isSyncing = false.obs;
   
   final RxnString editingMessageId = RxnString(null);
   final RxBool hasText = false.obs;
@@ -48,24 +49,6 @@ class ChatDetailController extends GetxController {
     
     textController.addListener(_onTextChanged);
     
-    // Listen to socket events
-    _socketService.onReceiveMessage = (data) async {
-      if (data['sender'] == remoteUser.id || data['receiver'] == remoteUser.id ||
-          data['senderId'] == remoteUser.id || data['receiverId'] == remoteUser.id) {
-        
-        await _chatRepository.saveIncomingMessage(data);
-        _loadMessages(fetchFromNetwork: false); // Load from local Realm instantly
-        
-        // If we received a message from the remote user, mark it as read immediately
-        if (data['sender'] == remoteUser.id || data['senderId'] == remoteUser.id) {
-          final messageId = data['_id'] ?? data['messageId'];
-          if (messageId != null) {
-            _socketService.emitMessageRead(messageId);
-          }
-        }
-      }
-    };
-
     _socketService.onUserTyping = (data) {
       print('==== ON USER TYPING RECEIVED: $data ====');
       print('==== COMPARING WITH REMOTE USER ID: ${remoteUser.id} ====');
@@ -83,22 +66,6 @@ class ChatDetailController extends GetxController {
         }
       }
     };
-    
-    _socketService.onMessageSentStatus = (data) {
-      final messageId = data['messageId'];
-      final tempMessageId = data['tempMessageId'];
-      final status = data['status'];
-      
-      if (messageId != null && status != null) {
-        if (tempMessageId != null && tempMessageId != messageId) {
-          _chatRepository.replaceTempMessageIdLocally(tempMessageId, messageId, status);
-        } else {
-          _updateLocalMessageStatus(messageId, status);
-        }
-        _loadMessages(fetchFromNetwork: false);
-      }
-    };
-    
     _socketService.onUserStatusChanged = (onlineUsersList) {
       print('==== ON USER STATUS CHANGED: $onlineUsersList ====');
       print('==== COMPARING WITH REMOTE USER ID: ${remoteUser.id} ====');
@@ -155,6 +122,10 @@ class ChatDetailController extends GetxController {
     };
   }
 
+  void reloadMessagesLocally() {
+    _loadMessages(fetchFromNetwork: false);
+  }
+
   void _updateLocalMessageStatus(String messageId, String status) {
     // Update local database. Realm objects are live, so this updates the references in memory.
     _chatRepository.updateMessageStatusLocally(messageId, status);
@@ -191,18 +162,43 @@ class ChatDetailController extends GetxController {
   }
 
   Future<void> _loadMessages({bool fetchFromNetwork = true}) async {
-    final msgs = await _chatRepository.getMessages(remoteUser.id, fetchFromNetwork: fetchFromNetwork);
-    messages.value = msgs.reversed.toList(); // Assuming we want newest at the bottom and we use a reversed ListView
-    messages.refresh(); // Force UI update since Realm objects mutate in-place
+    // 1. Load instantly from local database
+    isLoading.value = true;
+    final localMsgs = await _chatRepository.getMessages(remoteUser.id, fetchFromNetwork: false);
+    messages.assignAll(_filterDuplicates(localMsgs.reversed.toList()));
+    isLoading.value = false;
     
-    // Emit read status for any unread messages from the remote user
-    for (var msg in msgs) {
-      if (msg.senderId == remoteUser.id && msg.status != 'read') {
-        _socketService.emitMessageRead(msg.id);
-      }
+    // 2. Sync in background if requested
+    if (fetchFromNetwork) {
+      isSyncing.value = true;
+      final syncedMsgs = await _chatRepository.getMessages(remoteUser.id, fetchFromNetwork: true);
+      messages.assignAll(_filterDuplicates(syncedMsgs.reversed.toList()));
+      isSyncing.value = false;
     }
     
-    isLoading.value = false;
+    // Emit read status for any unread messages from the remote user
+    for (var msg in messages) {
+      if (msg.senderId == remoteUser.id && msg.status != 'read') {
+        _socketService.emitMessageRead(msg.id);
+        _chatRepository.updateMessageStatusLocally(msg.id, 'read');
+      }
+    }
+  }
+
+  List<MessageRealm> _filterDuplicates(List<MessageRealm> rawMsgs) {
+    final uniqueMsgs = <MessageRealm>[];
+    final seen = <String>{};
+    for (var msg in rawMsgs) {
+      // Use content and second-level timestamp as a unique composite key for the UI
+      // final timeKey = "\${msg.createdAt.year}-\${msg.createdAt.month}-\${msg.createdAt.day}_\${msg.createdAt.hour}:\${msg.createdAt.minute}:\${msg.createdAt.second}";
+      final key = "\${msg.content?.content}_\${timeKey}";
+      
+      if (!seen.contains(key)) {
+        seen.add(key);
+        uniqueMsgs.add(msg);
+      }
+    }
+    return uniqueMsgs;
   }
 
   void editMessage(MessageRealm msg) {

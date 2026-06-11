@@ -148,6 +148,10 @@ class MessageContentRealm extends _MessageContentRealm
     String? size,
     String? timestamp,
     String? status,
+    String? callType,
+    String? duration,
+    String? callfrom,
+    String? joined,
   }) {
     RealmObjectBase.set(this, 'type', type);
     RealmObjectBase.set(this, 'content', content);
@@ -156,6 +160,10 @@ class MessageContentRealm extends _MessageContentRealm
     RealmObjectBase.set(this, 'size', size);
     RealmObjectBase.set(this, 'timestamp', timestamp);
     RealmObjectBase.set(this, 'status', status);
+    RealmObjectBase.set(this, 'callType', callType);
+    RealmObjectBase.set(this, 'duration', duration);
+    RealmObjectBase.set(this, 'callfrom', callfrom);
+    RealmObjectBase.set(this, 'joined', joined);
   }
 
   MessageContentRealm._();
@@ -200,6 +208,29 @@ class MessageContentRealm extends _MessageContentRealm
   set status(String? value) => RealmObjectBase.set(this, 'status', value);
 
   @override
+  String? get callType =>
+      RealmObjectBase.get<String>(this, 'callType') as String?;
+  @override
+  set callType(String? value) => RealmObjectBase.set(this, 'callType', value);
+
+  @override
+  String? get duration =>
+      RealmObjectBase.get<String>(this, 'duration') as String?;
+  @override
+  set duration(String? value) => RealmObjectBase.set(this, 'duration', value);
+
+  @override
+  String? get callfrom =>
+      RealmObjectBase.get<String>(this, 'callfrom') as String?;
+  @override
+  set callfrom(String? value) => RealmObjectBase.set(this, 'callfrom', value);
+
+  @override
+  String? get joined => RealmObjectBase.get<String>(this, 'joined') as String?;
+  @override
+  set joined(String? value) => RealmObjectBase.set(this, 'joined', value);
+
+  @override
   Stream<RealmObjectChanges<MessageContentRealm>> get changes =>
       RealmObjectBase.getChanges<MessageContentRealm>(this);
 
@@ -221,6 +252,10 @@ class MessageContentRealm extends _MessageContentRealm
       'size': size.toEJson(),
       'timestamp': timestamp.toEJson(),
       'status': status.toEJson(),
+      'callType': callType.toEJson(),
+      'duration': duration.toEJson(),
+      'callfrom': callfrom.toEJson(),
+      'joined': joined.toEJson(),
     };
   }
 
@@ -236,6 +271,10 @@ class MessageContentRealm extends _MessageContentRealm
         size: fromEJson(ejson['size']),
         timestamp: fromEJson(ejson['timestamp']),
         status: fromEJson(ejson['status']),
+        callType: fromEJson(ejson['callType']),
+        duration: fromEJson(ejson['duration']),
+        callfrom: fromEJson(ejson['callfrom']),
+        joined: fromEJson(ejson['joined']),
       ),
       _ => raiseInvalidEJson(ejson),
     };
@@ -256,6 +295,10 @@ class MessageContentRealm extends _MessageContentRealm
         SchemaProperty('size', RealmPropertyType.string, optional: true),
         SchemaProperty('timestamp', RealmPropertyType.string, optional: true),
         SchemaProperty('status', RealmPropertyType.string, optional: true),
+        SchemaProperty('callType', RealmPropertyType.string, optional: true),
+        SchemaProperty('duration', RealmPropertyType.string, optional: true),
+        SchemaProperty('callfrom', RealmPropertyType.string, optional: true),
+        SchemaProperty('joined', RealmPropertyType.string, optional: true),
       ],
     );
   }();

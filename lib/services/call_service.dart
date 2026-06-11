@@ -118,6 +118,7 @@ class CallService extends GetxService {
       },
       'type': video ? 'video' : 'audio',
       'isGroupCall': false,
+      'participants': [_storageService.getUserId(), remoteUserId],
       'roomId': currentRoomId,
     });
   }
@@ -143,8 +144,9 @@ class CallService extends GetxService {
         'type': answer.type,
         'sdp': answer.sdp,
       },
-      'fromEmail': _storageService.getUserId(),
-      'toEmail': remoteUserId,
+      'fromEmail': incomingCallData!['fromEmail'], // The original caller
+      'toEmail': _storageService.getUserId(), // The user accepting
+      'participants': incomingCallData!['participants'] ?? [_storageService.getUserId(), incomingCallData!['fromEmail']],
       'roomId': currentRoomId,
     });
 

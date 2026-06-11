@@ -18,28 +18,78 @@ class ChatRepository {
   final SocketService _socketService = Get.find<SocketService>();
   final _uuid = const Uuid();
 
-  Future<List<UserRealm>> getChatList() async {
+  Future<List<UserRealm>> getChatList({bool fetchFromNetwork = true}) async {
     // 1. Instantly return local cached chats
     final localChats = _realmHelper.getUsers();
 
     // 2. Fetch from network if online
-    if (_connectivity.isOnline.value) {
+    if (fetchFromNetwork && _connectivity.isOnline.value) {
       try {
         final response = await _apiService.dio.get('/allMessageUsers');
         if (response.statusCode == 200) {
           final usersData = response.data['users'] as List;
-          final fetchedUsers = usersData.map((data) => UserRealm(
-            data['_id'] ?? '',
-            userName: data['userName'],
-            email: data['email'],
-            photo: data['photo'],
-            mobileNumber: data['mobileNumber'],
-            bio: data['bio'],
-            isOnline: data['isOnline'], // Map from socket info if available later
-          )).toList();
+          final List<MessageRealm> allMessagesToSave = [];
+          
+          final fetchedUsers = usersData.map((data) {
+            if (data['messages'] != null && data['messages'] is List) {
+              final msgs = (data['messages'] as List).map((msgData) {
+                final contentData = msgData['content'] ?? {};
+                final contentRealm = MessageContentRealm(
+                  contentData['type'] ?? 'text',
+                  content: contentData['content'],
+                  fileUrl: contentData['fileUrl'],
+                  fileType: contentData['fileType']?.toString(),
+                  size: contentData['size']?.toString(),
+                  timestamp: contentData['timestamp']?.toString(),
+                  status: contentData['status']?.toString(),
+                  callType: contentData['callType']?.toString(),
+                  duration: contentData['duration']?.toString(),
+                  callfrom: contentData['callfrom']?.toString(),
+                  joined: contentData['joined']?.toString(),
+                );
+
+                List<MessageReactionRealm> parsedReactions = [];
+                if (msgData['reactions'] != null && msgData['reactions'] is List) {
+                  parsedReactions = (msgData['reactions'] as List).map((r) {
+                    return MessageReactionRealm(
+                      r['emoji']?.toString() ?? '',
+                      jsonEncode([r['userId']?.toString() ?? '']),
+                    );
+                  }).toList();
+                }
+
+                return MessageRealm(
+                  msgData['_id']?.toString() ?? '',
+                  msgData['sender']?.toString() ?? '',
+                  msgData['receiver']?.toString() ?? '',
+                  msgData['status']?.toString() ?? 'sent',
+                  msgData['edited'] == true,
+                  DateTime.tryParse(msgData['createdAt']?.toString() ?? '') ?? DateTime.now(),
+                  DateTime.tryParse(msgData['updatedAt']?.toString() ?? '') ?? DateTime.now(),
+                  false,
+                  content: contentRealm,
+                  reactions: parsedReactions,
+                );
+              }).toList();
+              allMessagesToSave.addAll(msgs);
+            }
+
+            return UserRealm(
+              data['_id']?.toString() ?? '',
+              userName: data['userName']?.toString(),
+              email: data['email']?.toString(),
+              photo: data['photo']?.toString(),
+              mobileNumber: data['mobileNumber']?.toString(),
+              bio: data['bio']?.toString(),
+              isOnline: data['isOnline'] == true, // Safe boolean conversion
+            );
+          }).toList();
 
           _realmHelper.saveUsers(fetchedUsers);
-          return fetchedUsers;
+          if (allMessagesToSave.isNotEmpty) {
+            _realmHelper.saveMessages(allMessagesToSave);
+          }
+          return _realmHelper.getUsers();
         }
       } catch (e) {
         Get.log('Error fetching chat list: $e', isError: true);
@@ -94,13 +144,13 @@ class ChatRepository {
             }
 
             return MessageRealm(
-              data['_id'] ?? '',
-              data['sender'] ?? '',
-              data['receiver'] ?? '',
-              data['status'] ?? 'sent',
-              data['edited'] ?? false,
-              DateTime.tryParse(data['createdAt'] ?? '') ?? DateTime.now(),
-              DateTime.tryParse(data['updatedAt'] ?? '') ?? DateTime.now(),
+              data['_id']?.toString() ?? '',
+              data['sender']?.toString() ?? '',
+              data['receiver']?.toString() ?? '',
+              data['status']?.toString() ?? 'sent',
+              data['edited'] == true,
+              DateTime.tryParse(data['createdAt']?.toString() ?? '') ?? DateTime.now(),
+              DateTime.tryParse(data['updatedAt']?.toString() ?? '') ?? DateTime.now(),
               false,
               content: contentRealm,
               reactions: parsedReactions,
@@ -189,7 +239,7 @@ class ChatRepository {
 
     if (_connectivity.isOnline.value) {
       // Send directly
-      await _sendRealtimeMessage(receiverId, finalContent, type, tempId);
+      await sendRealtimeMessage(receiverId, finalContent, type, tempId);
     } else {
       // Add to offline queue
       final queuedMsg = OfflineQueueRealm(
@@ -203,7 +253,7 @@ class ChatRepository {
     }
   }
 
-  Future<void> _sendRealtimeMessage(String receiverId, String content, String type, String tempId) async {
+  Future<void> sendRealtimeMessage(String receiverId, String content, String type, String tempId) async {
     // Logic to send message through socket
     Get.log('Sending message to $receiverId');
     final userId = Get.find<StorageService>().getUserId() ?? 'myUserId';
@@ -252,6 +302,17 @@ class ChatRepository {
     _realmHelper.updateMessageContent(messageId, finalContent);
 
     if (_connectivity.isOnline.value) {
+      try {
+        await _apiService.dio.put('/updateMessage/$messageId', data: {
+          'content': {
+            'type': type,
+            'content': finalContent,
+          }
+        });
+      } catch (e) {
+        Get.log('Error updating message on server: $e', isError: true);
+      }
+
       _socketService.emitUpdateMessage({
         'messageId': messageId,
         'content': {
