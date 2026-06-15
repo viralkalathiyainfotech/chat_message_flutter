@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:chat_app/services/sync_service.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../../../core/database/realm_models.dart';
@@ -49,26 +50,21 @@ class ChatDetailController extends GetxController {
     
     textController.addListener(_onTextChanged);
     
-    _socketService.onUserTyping = (data) {
-      print('==== ON USER TYPING RECEIVED: $data ====');
-      print('==== COMPARING WITH REMOTE USER ID: ${remoteUser.id} ====');
-      
-      if (data['userId'] == remoteUser.id || data['senderId'] == remoteUser.id) {
-        if (data['isTyping'] == true) {
-          isRemoteTyping.value = true;
-          _remoteTypingTimer?.cancel();
-          _remoteTypingTimer = Timer(const Duration(seconds: 5), () {
-            isRemoteTyping.value = false;
-          });
-        } else {
+    ever(Get.find<SyncService>().typingUsers, (Map<String, bool> typingMap) {
+      if (typingMap[remoteUser.id] == true) {
+        isRemoteTyping.value = true;
+        _remoteTypingTimer?.cancel();
+        _remoteTypingTimer = Timer(const Duration(seconds: 5), () {
           isRemoteTyping.value = false;
-          _remoteTypingTimer?.cancel();
-        }
+        });
+      } else {
+        isRemoteTyping.value = false;
+        _remoteTypingTimer?.cancel();
       }
-    };
+    });
     _socketService.onUserStatusChanged = (onlineUsersList) {
-      print('==== ON USER STATUS CHANGED: $onlineUsersList ====');
-      print('==== COMPARING WITH REMOTE USER ID: ${remoteUser.id} ====');
+      Get.log('==== ON USER STATUS CHANGED: $onlineUsersList ====');
+      Get.log('==== COMPARING WITH REMOTE USER ID: ${remoteUser.id} ====');
       if (onlineUsersList.contains(remoteUser.id)) {
         isUserOnline.value = true;
       } else {
@@ -76,66 +72,14 @@ class ChatDetailController extends GetxController {
       }
     };
 
-    _socketService.onMessageRead = (data) {
-      final messageId = data['messageId'];
-      if (messageId != null) {
-        _updateLocalMessageStatus(messageId, 'read');
-      }
-    };
 
-    _socketService.onMessageDeleted = (data) {
-      _loadMessages();
-    };
-
-    _socketService.onMessageUpdated = (data) {
-      final messageId = data['messageId'];
-      final contentData = data['content'];
-      if (messageId != null && contentData != null) {
-        String content = contentData['content'];
-        _chatRepository.updateMessageContentLocally(messageId, content);
-      }
-      _loadMessages(fetchFromNetwork: false);
-    };
-
-    _socketService.onMessageReaction = (data) {
-      final messageId = data['messageId'];
-      final userId = data['userId'];
-      final emoji = data['emoji'];
-      final action = data['action'];
-      
-      if (messageId != null && userId != null && emoji != null && action != null) {
-        _chatRepository.handleMessageReactionLocally(messageId, userId, emoji, action);
-      }
-      _loadMessages(fetchFromNetwork: false);
-    };
-
-    _socketService.onRemoveMessageReaction = (data) {
-      final messageId = data['messageId'];
-      final userId = data['userId'];
-      final emoji = data['emoji'];
-      final action = data['action'] ?? 'removed'; // Backend doesn't explicitly send action for remove? Wait, backend handles it all in handleMessageReaction.
-      
-      if (messageId != null && userId != null && emoji != null) {
-        _chatRepository.handleMessageReactionLocally(messageId, userId, emoji, action);
-      }
-      _loadMessages(fetchFromNetwork: false);
-    };
   }
 
   void reloadMessagesLocally() {
     _loadMessages(fetchFromNetwork: false);
   }
 
-  void _updateLocalMessageStatus(String messageId, String status) {
-    // Update local database. Realm objects are live, so this updates the references in memory.
-    _chatRepository.updateMessageStatusLocally(messageId, status);
-    
-    // Update RxList to trigger UI refresh instantly
-    final index = messages.indexWhere((m) => m.id == messageId);
-    if (index != -1) {
-      messages.refresh();
-    }
-  }
+
 
   void _onTextChanged() {
     hasText.value = textController.text.trim().isNotEmpty;
@@ -163,7 +107,9 @@ class ChatDetailController extends GetxController {
 
   Future<void> _loadMessages({bool fetchFromNetwork = true}) async {
     // 1. Load instantly from local database
-    isLoading.value = true;
+    if (messages.isEmpty) {
+      isLoading.value = true;
+    }
     final localMsgs = await _chatRepository.getMessages(remoteUser.id, fetchFromNetwork: false);
     messages.assignAll(_filterDuplicates(localMsgs.reversed.toList()));
     isLoading.value = false;
@@ -190,8 +136,8 @@ class ChatDetailController extends GetxController {
     final seen = <String>{};
     for (var msg in rawMsgs) {
       // Use content and second-level timestamp as a unique composite key for the UI
-      // final timeKey = "\${msg.createdAt.year}-\${msg.createdAt.month}-\${msg.createdAt.day}_\${msg.createdAt.hour}:\${msg.createdAt.minute}:\${msg.createdAt.second}";
-      final key = "\${msg.content?.content}_\${timeKey}";
+      final timeKey = "${msg.createdAt.year}-${msg.createdAt.month}-${msg.createdAt.day}_${msg.createdAt.hour}:${msg.createdAt.minute}:${msg.createdAt.second}";
+      final key = "${msg.content?.content}_$timeKey";
       
       if (!seen.contains(key)) {
         seen.add(key);
@@ -252,14 +198,7 @@ class ChatDetailController extends GetxController {
     scrollController.dispose();
     _typingTimer?.cancel();
     _remoteTypingTimer?.cancel();
-    _socketService.onReceiveMessage = null;
-    _socketService.onUserTyping = null;
-    _socketService.onMessageSentStatus = null;
-    _socketService.onMessageRead = null;
-    _socketService.onMessageDeleted = null;
-    _socketService.onMessageUpdated = null;
-    _socketService.onMessageReaction = null;
-    _socketService.onRemoveMessageReaction = null;
+
     super.onClose();
   }
 }

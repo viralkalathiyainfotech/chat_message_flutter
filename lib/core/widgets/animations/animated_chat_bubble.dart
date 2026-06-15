@@ -5,10 +5,10 @@ class AnimatedChatBubble extends StatefulWidget {
   final Duration duration;
 
   const AnimatedChatBubble({
-    Key? key,
+    super.key,
     required this.child,
     this.duration = const Duration(milliseconds: 350),
-  }) : super(key: key);
+  });
 
   @override
   State<AnimatedChatBubble> createState() => _AnimatedChatBubbleState();

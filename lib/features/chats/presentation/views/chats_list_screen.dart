@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../constants/color_constants.dart';
 import '../../../../core/database/realm_helper.dart';
 import '../../../../services/socket_service.dart';
+import '../../../../services/sync_service.dart';
 import '../../../../utils/encryption_util.dart';
 import '../../../../core/widgets/animations/staggered_list_item.dart';
 import '../../../../core/widgets/animations/pulsing_widget.dart';
@@ -94,10 +95,53 @@ class ChatsListScreen extends StatelessWidget {
   }
 
   Widget _buildChatItem(UserRealm chat, BuildContext context) {
-    MessageRealm? lastMessage = RealmHelper().getLastMessageForUser(chat.id);
-    int unreadCount = RealmHelper().realm.query<MessageRealm>("senderId == \$0 AND status != 'read'", [chat.id]).length;
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      leading: Stack(
+        children: [
+          CircleAvatar(
+            radius: 26,
+            backgroundImage: chat.photo != null
+                ? CachedNetworkImageProvider(chat.photo!)
+                : null,
+            child: chat.photo == null ? const Icon(Icons.person) : null,
+          ),
+          Obx(() {
+            final isOnline = Get.find<SocketService>().onlineUsers.contains(chat.id);
+            if (isOnline) {
+              return Positioned(
+                right: 0,
+                bottom: 0,
+                child: PulsingWidget(
+                  scaleBegin: 0.8,
+                  scaleEnd: 1.2,
+                  duration: const Duration(milliseconds: 800),
+                  child: Container(
+                    width: 14,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: Colors.green,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Theme.of(context).scaffoldBackgroundColor, width: 2),
+                    ),
+                  ),
+                ),
+              );
+            }
+            return const SizedBox.shrink();
+          }),
+        ],
+      ),
+      title: Text(
+        chat.userName ?? 'Unknown',
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+      ),
+      subtitle: Obx(() {
+        // Observe updateTrigger to force refresh of lastMessage and unreadCount
+        // final trigger = controller.updateTrigger.value;
+        
+        MessageRealm? lastMessage = RealmHelper().getLastMessageForUser(chat.id);
         String subtitleText = 'Tap to chat...';
-        String timeText = '';
         
         if (lastMessage != null) {
           final content = lastMessage.content;
@@ -110,88 +154,64 @@ class ChatsListScreen extends StatelessWidget {
           } else {
             subtitleText = '📎 Attachment';
           }
-          
+        }
+
+        final isTyping = Get.find<SyncService>().typingUsers[chat.id] == true;
+        if (isTyping) {
+          return const Text(
+            'typing...',
+            style: TextStyle(color: ColorConstants.primaryBlue, fontWeight: FontWeight.w500),
+          );
+        }
+        return Text(
+          subtitleText,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Colors.grey),
+        );
+      }),
+      trailing: Obx(() {
+        // final trigger = controller.updateTrigger.value;
+        int unreadCount = RealmHelper().realm.query<MessageRealm>("senderId == \$0 AND status != 'read'", [chat.id]).length;
+        
+        MessageRealm? lastMessage = RealmHelper().getLastMessageForUser(chat.id);
+        String timeText = '';
+        if (lastMessage != null) {
           timeText = _formatDate(lastMessage.createdAt);
         }
 
-        return ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          leading: Stack(
-            children: [
-              CircleAvatar(
-                radius: 26,
-                backgroundImage: chat.photo != null
-                    ? CachedNetworkImageProvider(chat.photo!)
-                    : null,
-                child: chat.photo == null ? const Icon(Icons.person) : null,
-              ),
-              Obx(() {
-                final isOnline = Get.find<SocketService>().onlineUsers.contains(chat.id);
-                if (isOnline) {
-                  return Positioned(
-                    right: 0,
-                    bottom: 0,
-                    child: PulsingWidget(
-                      scaleBegin: 0.8,
-                      scaleEnd: 1.2,
-                      duration: const Duration(milliseconds: 800),
-                      child: Container(
-                        width: 14,
-                        height: 14,
-                        decoration: BoxDecoration(
-                          color: Colors.green,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Theme.of(context).scaffoldBackgroundColor, width: 2),
-                        ),
-                      ),
-                    ),
-                  );
-                }
-                return const SizedBox.shrink();
-              }),
-            ],
-          ),
-          title: Text(
-            chat.userName ?? 'Unknown',
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
-          subtitle: Text(
-            subtitleText,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.grey),
-          ),
-          trailing: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                timeText,
-                style: const TextStyle(color: Colors.grey, fontSize: 12),
-              ),
-              const SizedBox(height: 4),
-              if (unreadCount > 0)
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: const BoxDecoration(
-                    color: ColorConstants.primaryBlue,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Text(
-                    unreadCount > 9 ? '9+' : unreadCount.toString(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
+        return Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              timeText,
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+            const SizedBox(height: 4),
+            if (unreadCount > 0)
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: const BoxDecoration(
+                  color: ColorConstants.primaryBlue,
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  unreadCount > 9 ? '9+' : unreadCount.toString(),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-            ],
-          ),
-          onTap: () {
-            Get.to(() => ChatDetailScreen(user: chat));
-          },
+              ),
+          ],
         );
+      }),
+      onTap: () {
+        Get.to(() => ChatDetailScreen(user: chat));
+      },
+    );
   }
 
   String _formatDate(DateTime date) {

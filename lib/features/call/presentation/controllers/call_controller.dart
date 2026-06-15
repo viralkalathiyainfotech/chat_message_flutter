@@ -2,9 +2,36 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../../../services/call_service.dart';
 import '../views/call_screen.dart';
+import 'dart:async';
 
 class CallController extends GetxController {
   final CallService callService = Get.find<CallService>();
+
+  final RxString callDuration = '00:00'.obs;
+  Timer? _callTimer;
+  int _seconds = 0;
+
+  void _startTimer() {
+    _seconds = 0;
+    _callTimer?.cancel();
+    _callTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      _seconds++;
+      final minutes = (_seconds ~/ 60).toString().padLeft(2, '0');
+      final secs = (_seconds % 60).toString().padLeft(2, '0');
+      callDuration.value = '$minutes:$secs';
+    });
+  }
+
+  void _stopTimer() {
+    _callTimer?.cancel();
+    callDuration.value = '00:00';
+  }
+
+  @override
+  void onClose() {
+    _stopTimer();
+    super.onClose();
+  }
 
   @override
   void onInit() {
@@ -28,10 +55,12 @@ class CallController extends GetxController {
     // Listen for accepted/outgoing active calls
     ever(callService.isInCall, (bool isInCall) {
       if (isInCall) {
+        _startTimer();
         Get.to(() => const CallScreen());
       } else {
+        _stopTimer();
         // If we are on the call screen, go back
-        if (Get.currentRoute == '/CallScreen') {
+        if (Get.currentRoute == '/CallScreen' || Get.isOverlaysOpen) {
           Get.back();
         }
       }

@@ -131,6 +131,10 @@ class ChatRepository {
               size: contentData['size']?.toString(),
               timestamp: contentData['timestamp']?.toString(),
               status: contentData['status']?.toString(),
+              callType: contentData['callType']?.toString(),
+              duration: contentData['duration']?.toString(),
+              callfrom: contentData['callfrom']?.toString(),
+              joined: contentData['joined']?.toString(),
             );
 
             List<MessageReactionRealm> parsedReactions = [];
@@ -179,6 +183,10 @@ class ChatRepository {
         size: contentData['size']?.toString(),
         timestamp: contentData['timestamp']?.toString(),
         status: contentData['status']?.toString(),
+        callType: contentData['callType']?.toString(),
+        duration: contentData['duration']?.toString(),
+        callfrom: contentData['callfrom']?.toString(),
+        joined: contentData['joined']?.toString(),
       );
 
       List<MessageReactionRealm> parsedReactions = [];

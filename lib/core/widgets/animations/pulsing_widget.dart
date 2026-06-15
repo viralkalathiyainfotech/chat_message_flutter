@@ -7,12 +7,12 @@ class PulsingWidget extends StatefulWidget {
   final Duration duration;
 
   const PulsingWidget({
-    Key? key,
+    super.key,
     required this.child,
     this.scaleBegin = 0.95,
     this.scaleEnd = 1.05,
-    this.duration = const Duration(milliseconds: 1000),
-  }) : super(key: key);
+    this.duration = const Duration(milliseconds: 1500),
+  });
 
   @override
   State<PulsingWidget> createState() => _PulsingWidgetState();

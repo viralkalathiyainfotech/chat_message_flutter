@@ -39,7 +39,7 @@ class SocketService extends GetxService {
     if (socket == null) {
       _initSocket();
     } else if (!isConnected.value) {
-      print('==== MANUALLY CONNECTING SOCKET ====');
+      Get.log('==== MANUALLY CONNECTING SOCKET ====');
       socket?.connect();
     }
   }
@@ -49,14 +49,14 @@ class SocketService extends GetxService {
   }
 
   Future<void> _initSocket() async {
-    print('==== INITIALIZING SOCKET ====');
+    Get.log('==== INITIALIZING SOCKET ====');
     final token = _storageService.getToken();
     final userId = _storageService.getUserId();
     
-    print('==== SOCKET PARAMS: token exists? ${token != null}, userId: $userId ====');
+    Get.log('==== SOCKET PARAMS: token exists? ${token != null}, userId: $userId ====');
     
     if (token == null || userId == null) {
-      print('==== CANNOT INIT SOCKET: Token or UserId missing ====');
+      Get.log('==== CANNOT INIT SOCKET: Token or UserId missing ====');
       return;
     }
 
@@ -86,52 +86,52 @@ class SocketService extends GetxService {
     );
 
     socket?.onAny((event, data) {
-      print('SOCKET EVENT => $event');
-      print('SOCKET DATA => $data');
+      Get.log('SOCKET EVENT => $event');
+      Get.log('SOCKET DATA => $data');
     });
 
     socket?.onError((error) {
-      print('SOCKET ERROR => $error');
+      Get.log('SOCKET ERROR => $error', isError: true);
     });
 
     socket?.onReconnect((attempt) {
-      print('RECONNECTED => $attempt');
+      Get.log('RECONNECTED => $attempt');
     });
 
     socket?.onReconnectAttempt((attempt) {
-      print('RECONNECT ATTEMPT => $attempt');
+      Get.log('RECONNECT ATTEMPT => $attempt');
     });
 
     socket?.onReconnectError((error) {
-      print('RECONNECT ERROR => $error');
+      Get.log('RECONNECT ERROR => $error', isError: true);
     });
 
     socket?.onReconnectFailed((_) {
-      print('RECONNECT FAILED');
+      Get.log('RECONNECT FAILED', isError: true);
     });
 
     socket?.onPing((_) {
-      print('PING');
+      Get.log('PING');
     });
 
     socket?.onPong((_) {
-      print('PONG');
+      Get.log('PONG');
     });
 
     socket?.onConnect((_) {
-      print('==== SOCKET CONNECTION ESTABLISHED SUCCESSFULLY ====');
+      Get.log('==== SOCKET CONNECTION ESTABLISHED SUCCESSFULLY ====');
       isConnected.value = true;
       socket?.emit('user-login', userId);
       socket?.emit('join-device-room', deviceId);
     });
 
     socket?.onConnectError((error) {
-      print('==== SOCKET CONNECTION ERROR: $error ====');
+      Get.log('==== SOCKET CONNECTION ERROR: $error ====', isError: true);
       isConnected.value = false;
     });
 
     socket?.onDisconnect((_) {
-      print('==== SOCKET DISCONNECTED ====');
+      Get.log('==== SOCKET DISCONNECTED ====');
       isConnected.value = false;
     });
 
@@ -162,10 +162,11 @@ class SocketService extends GetxService {
     });
 
     socket?.on('message-deleted', (data) {
-      if (onMessageDeleted != null)
+      if (onMessageDeleted != null) {
         onMessageDeleted!(
           data is List && data.isNotEmpty ? data.first : data,
         ); // Could be a String ID
+      }
     });
 
     socket?.on('message-reaction', (data) {
@@ -175,8 +176,9 @@ class SocketService extends GetxService {
 
     socket?.on('remove-message-reaction', (data) {
       final map = _safeCast(data);
-      if (map != null && onRemoveMessageReaction != null)
+      if (map != null && onRemoveMessageReaction != null) {
         onRemoveMessageReaction!(map);
+      }
     });
 
     socket?.on('user-status-changed', (data) {
@@ -215,7 +217,7 @@ class SocketService extends GetxService {
       if (map != null && onUserInCall != null) onUserInCall!(map);
     });
 
-    print('==== LISTENERS ATTACHED, NOW CONNECTING... ====');
+    Get.log('==== LISTENERS ATTACHED, NOW CONNECTING... ====');
     socket?.connect();
   }
 
@@ -330,6 +332,12 @@ class SocketService extends GetxService {
   void emitEndCall(Map<String, dynamic> data) {
     if (isConnected.value) {
       socket?.emit('end-call', data);
+    }
+  }
+
+  void emitSaveCallMessage(Map<String, dynamic> data) {
+    if (isConnected.value) {
+      socket?.emit('save-call-message', data);
     }
   }
 }

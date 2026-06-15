@@ -30,6 +30,9 @@ class CallService extends GetxService {
   String? currentRoomId;
   String? remoteUserId;
   Map<String, dynamic>? incomingCallData;
+  DateTime? callStartTime;
+  bool isIncoming = false;
+  bool isVideoCall = false;
 
   @override
   void onInit() {
@@ -49,10 +52,12 @@ class CallService extends GetxService {
         // Already in a call, backend should handle user-in-call, but we can ignore
         return;
       }
-      isReceivingCall.value = true;
       incomingCallData = data;
       remoteUserId = data['fromEmail'];
       currentRoomId = data['roomId'];
+      isIncoming = true;
+      isVideoCall = data['type'] == 'video';
+      isReceivingCall.value = true;
     };
 
     _socketService.onCallAccepted = (data) async {
@@ -66,6 +71,7 @@ class CallService extends GetxService {
       }
       isCalling.value = false;
       isInCall.value = true;
+      callStartTime = DateTime.now();
     };
 
     _socketService.onCallSignal = (data) async {
@@ -103,6 +109,8 @@ class CallService extends GetxService {
     remoteUserId = targetUserId;
     currentRoomId = const Uuid().v4();
     isCalling.value = true;
+    isIncoming = false;
+    isVideoCall = video;
     
     await _setupPeerConnection(video: video);
     
@@ -152,6 +160,7 @@ class CallService extends GetxService {
 
     isReceivingCall.value = false;
     isInCall.value = true;
+    callStartTime = DateTime.now();
   }
 
   void declineCall() {
@@ -173,6 +182,19 @@ class CallService extends GetxService {
   }
 
   void endCallLocally() {
+    if (!isIncoming && remoteUserId != null) {
+      final duration = callStartTime != null ? DateTime.now().difference(callStartTime!).inSeconds : 0;
+      _socketService.emitSaveCallMessage({
+        'senderId': _storageService.getUserId(),
+        'receiverId': remoteUserId,
+        'callType': isVideoCall ? 'video' : 'audio',
+        'status': duration > 0 ? 'ended' : 'missed',
+        'duration': duration,
+        'timestamp': DateTime.now().toIso8601String(),
+        'callfrom': _storageService.getUserId(),
+        'joined': duration > 0,
+      });
+    }
     _resetCallState();
   }
 
@@ -231,7 +253,7 @@ class CallService extends GetxService {
         _peerConnection!.addTrack(track, localStream!);
       });
     } catch (e) {
-      print("Error getting user media: \$e");
+      Get.log("Error getting user media: $e", isError: true);
     }
   }
 
@@ -284,7 +306,7 @@ class CallService extends GetxService {
           toggleScreenShare(); // revert back to camera
         };
       } catch (e) {
-        print("Error sharing screen: \$e");
+        Get.log("Error sharing screen: $e", isError: true);
       }
     } else {
       // Revert to camera
@@ -308,7 +330,7 @@ class CallService extends GetxService {
         localRenderer.refresh();
         isScreenSharing.value = false;
       } catch (e) {
-        print("Error stopping screen share: \$e");
+        Get.log("Error stopping screen share: $e", isError: true);
       }
     }
   }
@@ -320,6 +342,9 @@ class CallService extends GetxService {
     currentRoomId = null;
     remoteUserId = null;
     incomingCallData = null;
+    callStartTime = null;
+    isIncoming = false;
+    isVideoCall = false;
 
     localStream?.getTracks().forEach((track) => track.stop());
     localStream?.dispose();

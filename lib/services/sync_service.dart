@@ -15,6 +15,8 @@ class SyncService extends GetxService {
   
   final RxnString activeChatUserId = RxnString(null);
 
+  final RxMap<String, bool> typingUsers = <String, bool>{}.obs;
+
   @override
   void onInit() {
     super.onInit();
@@ -92,6 +94,68 @@ class SyncService extends GetxService {
            if (msg != null) msg.status = status;
         });
         
+        if (activeChatUserId.value != null && Get.isRegistered<ChatDetailController>(tag: activeChatUserId.value)) {
+          try {
+            Get.find<ChatDetailController>(tag: activeChatUserId.value).reloadMessagesLocally();
+          } catch (_) {}
+        }
+      }
+    };
+
+    _socketService.onUserTyping = (data) {
+      final userId = data['userId'] ?? data['senderId'];
+      final isTyping = data['isTyping'] == true;
+      if (userId != null) {
+        typingUsers[userId] = isTyping;
+      }
+    };
+
+    _socketService.onMessageDeleted = (data) {
+      if (activeChatUserId.value != null && Get.isRegistered<ChatDetailController>(tag: activeChatUserId.value)) {
+        try {
+          Get.find<ChatDetailController>(tag: activeChatUserId.value).reloadMessagesLocally();
+        } catch (_) {}
+      }
+    };
+
+    _socketService.onMessageUpdated = (data) {
+      final messageId = data['messageId'];
+      final contentData = data['content'];
+      if (messageId != null && contentData != null) {
+        String content = contentData['content'];
+        Get.find<ChatRepository>().updateMessageContentLocally(messageId, content);
+        if (activeChatUserId.value != null && Get.isRegistered<ChatDetailController>(tag: activeChatUserId.value)) {
+          try {
+            Get.find<ChatDetailController>(tag: activeChatUserId.value).reloadMessagesLocally();
+          } catch (_) {}
+        }
+      }
+    };
+
+    _socketService.onMessageReaction = (data) {
+      final messageId = data['messageId'];
+      final userId = data['userId'];
+      final emoji = data['emoji'];
+      final action = data['action'];
+      
+      if (messageId != null && userId != null && emoji != null && action != null) {
+        Get.find<ChatRepository>().handleMessageReactionLocally(messageId, userId, emoji, action);
+        if (activeChatUserId.value != null && Get.isRegistered<ChatDetailController>(tag: activeChatUserId.value)) {
+          try {
+            Get.find<ChatDetailController>(tag: activeChatUserId.value).reloadMessagesLocally();
+          } catch (_) {}
+        }
+      }
+    };
+
+    _socketService.onRemoveMessageReaction = (data) {
+      final messageId = data['messageId'];
+      final userId = data['userId'];
+      final emoji = data['emoji'];
+      final action = data['action'] ?? 'removed';
+      
+      if (messageId != null && userId != null && emoji != null) {
+        Get.find<ChatRepository>().handleMessageReactionLocally(messageId, userId, emoji, action);
         if (activeChatUserId.value != null && Get.isRegistered<ChatDetailController>(tag: activeChatUserId.value)) {
           try {
             Get.find<ChatDetailController>(tag: activeChatUserId.value).reloadMessagesLocally();

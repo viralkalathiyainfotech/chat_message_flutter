@@ -7,12 +7,12 @@ class StaggeredListItem extends StatefulWidget {
   final Duration duration;
 
   const StaggeredListItem({
-    Key? key,
+    super.key,
     required this.child,
     required this.index,
     this.delay = const Duration(milliseconds: 50),
     this.duration = const Duration(milliseconds: 400),
-  }) : super(key: key);
+  });
 
   @override
   State<StaggeredListItem> createState() => _StaggeredListItemState();

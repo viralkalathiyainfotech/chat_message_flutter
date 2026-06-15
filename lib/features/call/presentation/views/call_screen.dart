@@ -90,7 +90,7 @@ class CallScreen extends GetView<CallController> {
                       ),
                       child: Obx(() {
                         return Text(
-                          controller.callService.isCalling.value ? 'Calling...' : '00:00', // Basic timer placeholder
+                          controller.callService.isCalling.value ? 'Calling...' : controller.callDuration.value,
                           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                         );
                       }),

@@ -10,18 +10,28 @@ class ChatsController extends GetxController {
   final RxList<UserRealm> recentChats = <UserRealm>[].obs;
   final RxBool isLoading = true.obs;
   final RxBool isSyncing = false.obs;
+  final RxInt updateTrigger = 0.obs;
 
   late StreamSubscription<RealmResultsChanges<MessageRealm>> _messageSubscription;
+  late StreamSubscription<RealmResultsChanges<UserRealm>> _userSubscription;
   late RealmResults<MessageRealm> _allMessagesResults;
+  late RealmResults<UserRealm> _allUsersResults;
 
   @override
   void onInit() {
     super.onInit();
     _loadChats();
     
-    // Auto-update the list order when any message changes
+    // Listen to ALL messages to re-sort chats when new messages arrive
     _allMessagesResults = RealmHelper().realm.all<MessageRealm>();
     _messageSubscription = _allMessagesResults.changes.listen((event) {
+      _sortAndUpdateChats();
+    });
+
+    _allUsersResults = RealmHelper().realm.all<UserRealm>();
+    _userSubscription = _allUsersResults.changes.listen((event) async {
+      final localChats = await _chatRepository.getChatList(fetchFromNetwork: false);
+      recentChats.assignAll(localChats);
       _sortAndUpdateChats();
     });
   }
@@ -29,6 +39,7 @@ class ChatsController extends GetxController {
   @override
   void onClose() {
     _messageSubscription.cancel();
+    _userSubscription.cancel();
     super.onClose();
   }
 
@@ -68,5 +79,6 @@ class ChatsController extends GetxController {
     });
     recentChats.assignAll(chats);
     recentChats.refresh();
+    updateTrigger.value++;
   }
 }
