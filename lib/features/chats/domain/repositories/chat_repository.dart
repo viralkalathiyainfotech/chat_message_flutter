@@ -81,11 +81,72 @@ class ChatRepository {
               photo: data['photo']?.toString(),
               mobileNumber: data['mobileNumber']?.toString(),
               bio: data['bio']?.toString(),
-              isOnline: data['isOnline'] == true, // Safe boolean conversion
+              isOnline: data['isOnline'] == true,
+              isGroup: data['isGroup'] == true,
+              membersListJson: data['members'] != null ? jsonEncode(data['members']) : null,
             );
           }).toList();
 
-          _realmHelper.saveUsers(fetchedUsers);
+          try {
+            final groupResponse = await _apiService.dio.get('/allGroups');
+            if (groupResponse.statusCode == 200) {
+              final groupsData = groupResponse.data as List;
+              final fetchedGroups = groupsData.map((data) {
+                return UserRealm(
+                  data['_id']?.toString() ?? '',
+                  userName: data['userName']?.toString() ?? 'Group',
+                  photo: data['photo']?.toString(),
+                  bio: data['bio']?.toString(),
+                  isGroup: true,
+                  membersListJson: jsonEncode(data['members']),
+                );
+              }).toList();
+              fetchedUsers.addAll(fetchedGroups);
+            }
+          } catch (e) {
+            Get.log('Error fetching groups: $e', isError: true);
+          }
+
+          try {
+            final callsResponse = await _apiService.dio.get('/allCallUsers');
+            if (callsResponse.statusCode == 200) {
+              final callsData = callsResponse.data['users'] as List;
+              final fetchedCallUsers = callsData.map((data) {
+                // Return UserRealm, and also save their latest call message
+                if (data['messages'] != null && (data['messages'] as List).isNotEmpty) {
+                  for (var msgData in (data['messages'] as List)) {
+                    saveIncomingMessage(msgData);
+                  }
+                }
+                return UserRealm(
+                  data['_id']?.toString() ?? '',
+                  userName: data['userName']?.toString(),
+                  email: data['email']?.toString(),
+                  photo: data['photo']?.toString(),
+                );
+              }).toList();
+              fetchedUsers.addAll(fetchedCallUsers);
+            }
+          } catch (e) {
+            Get.log('Error fetching call users: $e', isError: true);
+          }
+
+          // Deduplicate fetchedUsers by ID before saving
+          final uniqueUsers = <String, UserRealm>{};
+          for (var user in fetchedUsers) {
+             // Let the one with more fields take precedence
+             if (!uniqueUsers.containsKey(user.id) || (user.isGroup == true)) {
+                uniqueUsers[user.id] = user;
+             } else {
+                if (user.photo != null) uniqueUsers[user.id]!.photo = user.photo;
+                if (user.userName != null) uniqueUsers[user.id]!.userName = user.userName;
+             }
+          }
+
+          Get.log('Total unique users: \${uniqueUsers.length}');
+          Get.log('Total groups: \${uniqueUsers.values.where((u) => u.isGroup == true).length}');
+
+          _realmHelper.saveUsers(uniqueUsers.values.toList());
           if (allMessagesToSave.isNotEmpty) {
             _realmHelper.saveMessages(allMessagesToSave);
           }

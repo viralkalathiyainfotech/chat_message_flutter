@@ -20,6 +20,8 @@ class UserRealm extends _UserRealm
     String? bio,
     bool? isOnline,
     DateTime? lastSeen,
+    bool? isGroup,
+    String? membersListJson,
   }) {
     RealmObjectBase.set(this, 'id', id);
     RealmObjectBase.set(this, 'userName', userName);
@@ -29,6 +31,8 @@ class UserRealm extends _UserRealm
     RealmObjectBase.set(this, 'bio', bio);
     RealmObjectBase.set(this, 'isOnline', isOnline);
     RealmObjectBase.set(this, 'lastSeen', lastSeen);
+    RealmObjectBase.set(this, 'isGroup', isGroup);
+    RealmObjectBase.set(this, 'membersListJson', membersListJson);
   }
 
   UserRealm._();
@@ -78,6 +82,18 @@ class UserRealm extends _UserRealm
   set lastSeen(DateTime? value) => RealmObjectBase.set(this, 'lastSeen', value);
 
   @override
+  bool? get isGroup => RealmObjectBase.get<bool>(this, 'isGroup') as bool?;
+  @override
+  set isGroup(bool? value) => RealmObjectBase.set(this, 'isGroup', value);
+
+  @override
+  String? get membersListJson =>
+      RealmObjectBase.get<String>(this, 'membersListJson') as String?;
+  @override
+  set membersListJson(String? value) =>
+      RealmObjectBase.set(this, 'membersListJson', value);
+
+  @override
   Stream<RealmObjectChanges<UserRealm>> get changes =>
       RealmObjectBase.getChanges<UserRealm>(this);
 
@@ -98,6 +114,8 @@ class UserRealm extends _UserRealm
       'bio': bio.toEJson(),
       'isOnline': isOnline.toEJson(),
       'lastSeen': lastSeen.toEJson(),
+      'isGroup': isGroup.toEJson(),
+      'membersListJson': membersListJson.toEJson(),
     };
   }
 
@@ -114,6 +132,8 @@ class UserRealm extends _UserRealm
         bio: fromEJson(ejson['bio']),
         isOnline: fromEJson(ejson['isOnline']),
         lastSeen: fromEJson(ejson['lastSeen']),
+        isGroup: fromEJson(ejson['isGroup']),
+        membersListJson: fromEJson(ejson['membersListJson']),
       ),
       _ => raiseInvalidEJson(ejson),
     };
@@ -131,6 +151,12 @@ class UserRealm extends _UserRealm
       SchemaProperty('bio', RealmPropertyType.string, optional: true),
       SchemaProperty('isOnline', RealmPropertyType.bool, optional: true),
       SchemaProperty('lastSeen', RealmPropertyType.timestamp, optional: true),
+      SchemaProperty('isGroup', RealmPropertyType.bool, optional: true),
+      SchemaProperty(
+        'membersListJson',
+        RealmPropertyType.string,
+        optional: true,
+      ),
     ]);
   }();
 

@@ -17,7 +17,7 @@ class RealmHelper {
       MessageReactionRealm.schema,
       OfflineQueueRealm.schema,
       LocalContactRealm.schema,
-    ], schemaVersion: 3);
+    ], schemaVersion: 4);
     _realm = Realm(config);
   }
 

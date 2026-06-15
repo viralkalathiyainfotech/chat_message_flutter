@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:chat_app/core/database/realm_helper.dart';
 import 'package:chat_app/services/sync_service.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -31,6 +32,12 @@ class ChatDetailController extends GetxController {
   DateTime? _lastTypingEmit;
 
   ChatDetailController({required this.remoteUser});
+
+  UserRealm? getUserById(String id) {
+    final realmHelper = Get.find<RealmHelper>();
+    final users = realmHelper.realm.query<UserRealm>('id == \$0', [id]);
+    return users.isNotEmpty ? users.first : null;
+  }
 
   @override
   void onInit() {

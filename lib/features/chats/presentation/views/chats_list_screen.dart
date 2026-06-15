@@ -104,7 +104,7 @@ class ChatsListScreen extends StatelessWidget {
             backgroundImage: chat.photo != null
                 ? CachedNetworkImageProvider(chat.photo!)
                 : null,
-            child: chat.photo == null ? const Icon(Icons.person) : null,
+            child: chat.photo == null ? Icon(chat.isGroup == true ? Icons.group : Icons.person) : null,
           ),
           Obx(() {
             final isOnline = Get.find<SocketService>().onlineUsers.contains(chat.id);
@@ -137,8 +137,8 @@ class ChatsListScreen extends StatelessWidget {
         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
       ),
       subtitle: Obx(() {
-        // Observe updateTrigger to force refresh of lastMessage and unreadCount
-        // final trigger = controller.updateTrigger.value;
+        // Access updateTrigger to force refresh of lastMessage and unreadCount
+        controller.updateTrigger.value;
         
         MessageRealm? lastMessage = RealmHelper().getLastMessageForUser(chat.id);
         String subtitleText = 'Tap to chat...';
@@ -171,7 +171,7 @@ class ChatsListScreen extends StatelessWidget {
         );
       }),
       trailing: Obx(() {
-        // final trigger = controller.updateTrigger.value;
+        controller.updateTrigger.value;
         int unreadCount = RealmHelper().realm.query<MessageRealm>("senderId == \$0 AND status != 'read'", [chat.id]).length;
         
         MessageRealm? lastMessage = RealmHelper().getLastMessageForUser(chat.id);

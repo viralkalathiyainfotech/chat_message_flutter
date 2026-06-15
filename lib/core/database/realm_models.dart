@@ -13,6 +13,8 @@ class _UserRealm {
   late String? bio;
   late bool? isOnline;
   late DateTime? lastSeen;
+  late bool? isGroup;
+  late String? membersListJson;
 }
 
 @RealmModel()

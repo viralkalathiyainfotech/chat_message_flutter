@@ -5,6 +5,8 @@ import '../../../../../constants/asset_constants.dart';
 import '../../../../../constants/color_constants.dart';
 import '../../../../core/extensions/app_extensions.dart';
 import '../../../chats/presentation/views/chats_list_screen.dart';
+import '../../../chats/presentation/views/groups_list_screen.dart';
+import '../../../calls/presentation/views/calls_list_screen.dart';
 import '../controllers/main_controller.dart';
 
 class MainScreen extends GetView<MainController> {
@@ -18,8 +20,8 @@ class MainScreen extends GetView<MainController> {
           index: controller.currentIndex.value,
           children: [
             ChatsListScreen(),
-            _buildPlaceholder('Groups', context),
-            _buildPlaceholder('Calls', context),
+            GroupsListScreen(),
+            CallsListScreen(),
             _buildPlaceholder('Profile', context),
           ],
         ),

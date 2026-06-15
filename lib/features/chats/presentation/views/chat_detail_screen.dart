@@ -8,7 +8,7 @@ import 'dart:io';
 
 import '../../../../constants/color_constants.dart';
 import '../../../../constants/asset_constants.dart';
-import '../../../call/presentation/controllers/call_controller.dart';
+import '../../../calls/presentation/controllers/call_controller.dart';
 import '../../../../core/database/realm_models.dart';
 import '../../../../utils/encryption_util.dart';
 import '../../../../services/storage_service.dart';
@@ -84,7 +84,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             backgroundImage: user.photo != null
                 ? CachedNetworkImageProvider(user.photo!)
                 : null,
-            child: user.photo == null ? const Icon(Icons.person) : null,
+            child: user.photo == null ? Icon(user.isGroup == true ? Icons.group : Icons.person) : null,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -99,6 +99,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   ),
                 ),
                 Obx(() {
+                  if (user.isGroup == true) {
+                     return const Text(
+                       'Tap here for group info',
+                       style: TextStyle(fontSize: 12, color: Colors.grey),
+                     );
+                  }
                   if (controller.isRemoteTyping.value) {
                     return const Text(
                       'typing...',
@@ -204,6 +210,25 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             Column(
               crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
               children: [
+                // Sender name for group chats
+                if (!isMe && controller.remoteUser.isGroup == true) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2, left: 4),
+                    child: Builder(
+                      builder: (context) {
+                        final sender = controller.getUserById(message.senderId);
+                        return Text(
+                          sender?.userName ?? 'Unknown User',
+                          style: TextStyle(
+                            color: ColorConstants.primaryBlue,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        );
+                      }
+                    ),
+                  ),
+                ],
                 // Time above the bubble
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4, left: 4, right: 4),
