@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:chat_app/core/database/realm_helper.dart';
 import 'package:chat_app/services/sync_service.dart';
+import 'package:chat_app/services/storage_service.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../../../core/database/realm_models.dart';
@@ -34,7 +35,7 @@ class ChatDetailController extends GetxController {
   ChatDetailController({required this.remoteUser});
 
   UserRealm? getUserById(String id) {
-    final realmHelper = Get.find<RealmHelper>();
+    final realmHelper = RealmHelper();
     final users = realmHelper.realm.query<UserRealm>('id == \$0', [id]);
     return users.isNotEmpty ? users.first : null;
   }
@@ -130,8 +131,20 @@ class ChatDetailController extends GetxController {
     }
     
     // Emit read status for any unread messages from the remote user
+    final myId = Get.find<StorageService>().getUserId();
     for (var msg in messages) {
-      if (msg.senderId == remoteUser.id && msg.status != 'read') {
+      bool isUnread = false;
+      if (remoteUser.isGroup == true) {
+        if (msg.receiverId == remoteUser.id && msg.senderId != myId && msg.status != 'read') {
+           isUnread = true;
+        }
+      } else {
+        if (msg.senderId == remoteUser.id && msg.status != 'read') {
+           isUnread = true;
+        }
+      }
+      
+      if (isUnread) {
         _socketService.emitMessageRead(msg.id);
         _chatRepository.updateMessageStatusLocally(msg.id, 'read');
       }

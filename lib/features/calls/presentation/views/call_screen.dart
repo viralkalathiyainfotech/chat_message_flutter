@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:floating/floating.dart';
 import '../controllers/call_controller.dart';
 
 class CallScreen extends GetView<CallController> {
@@ -8,12 +9,74 @@ class CallScreen extends GetView<CallController> {
 
   @override
   Widget build(BuildContext context) {
+    return PiPSwitcher(
+      childWhenDisabled: _buildFullCallScreen(context),
+      childWhenEnabled: _buildPiPCallScreen(),
+    );
+  }
+
+  Widget _buildPiPCallScreen() {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          // Remote Video
+          Positioned.fill(
+            child: Obx(() {
+              final renderers = controller.callService.remoteRenderers.values.toList();
+              if (renderers.isNotEmpty && controller.callService.isVideoCall) {
+                return RTCVideoView(
+                  renderers[0],
+                  objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                );
+              }
+              return const Center(child: Icon(Icons.call, color: Colors.green, size: 40));
+            }),
+          ),
+          // Local Video (Tiny)
+          Positioned(
+            left: 5,
+            bottom: 5,
+            width: 40,
+            height: 60,
+            child: Obx(() {
+              final hasLocal = controller.callService.hasLocalStream.value;
+              return hasLocal && controller.callService.isVideoEnabled.value
+                  ? Container(
+                      decoration: BoxDecoration(
+                        color: Colors.grey[900],
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: Colors.white24, width: 1),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(5),
+                        child: RTCVideoView(
+                          controller.callService.localRenderer.value,
+                          mirror: true,
+                          objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                        ),
+                      ),
+                    )
+                  : const SizedBox.shrink();
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFullCallScreen(BuildContext context) {
     return PopScope(
       canPop: false, // Prevent back button during call
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) {
-          controller.callService.endCall();
-          Get.back();
+          if (controller.callService.isInCall.value) {
+            controller.showInAppOverlay();
+            Get.back();
+          } else {
+            controller.callService.endCall();
+            Get.back();
+          }
         }
       },
       child: Scaffold(
@@ -21,28 +84,53 @@ class CallScreen extends GetView<CallController> {
         body: SafeArea(
           child: Stack(
             children: [
-              // Remote Video (Full Screen)
+              // Remote Video (Full Screen or Grid)
               Positioned.fill(
                 child: Obx(() {
-                  final hasRemote = controller.callService.hasRemoteStream.value;
-                  return hasRemote
-                      ? RTCVideoView(
-                          controller.callService.remoteRenderer.value,
-                          objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                        )
-                      : const Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              CircularProgressIndicator(color: Colors.white),
-                              SizedBox(height: 20),
-                              Text(
-                                'Connecting...',
-                                style: TextStyle(color: Colors.white, fontSize: 18),
-                              ),
-                            ],
+                  final renderers = controller.callService.remoteRenderers.values.toList();
+                  if (renderers.isEmpty) {
+                    return const Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          CircularProgressIndicator(color: Colors.white),
+                          SizedBox(height: 20),
+                          Text(
+                            'Connecting...',
+                            style: TextStyle(color: Colors.white, fontSize: 18),
                           ),
-                        );
+                        ],
+                      ),
+                    );
+                  }
+                  
+                  // If 1 remote, fullscreen. If more, grid.
+                  if (renderers.length == 1) {
+                     return RTCVideoView(
+                        renderers[0],
+                        objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                      );
+                  } else {
+                     return GridView.builder(
+                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                         crossAxisCount: renderers.length > 2 ? 2 : 1,
+                         childAspectRatio: renderers.length > 2 ? 1.0 : 0.8,
+                       ),
+                       itemCount: renderers.length,
+                       itemBuilder: (context, index) {
+                         return Container(
+                           margin: const EdgeInsets.all(2.0),
+                           decoration: BoxDecoration(
+                             border: Border.all(color: Colors.white24, width: 2),
+                           ),
+                           child: RTCVideoView(
+                             renderers[index],
+                             objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                           ),
+                         );
+                       },
+                     );
+                  }
                 }),
               ),
 
@@ -82,6 +170,18 @@ class CallScreen extends GetView<CallController> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
+                    IconButton(
+                      icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 32),
+                      onPressed: () {
+                        if (controller.callService.isInCall.value) {
+                           controller.showInAppOverlay();
+                           Get.back();
+                        } else {
+                           controller.callService.endCall();
+                           Get.back();
+                        }
+                      },
+                    ),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       decoration: BoxDecoration(
@@ -100,7 +200,15 @@ class CallScreen extends GetView<CallController> {
                       onPressed: () {
                         // Implement switch camera
                         if (controller.callService.localStream != null) {
-                          Helper.switchCamera(controller.callService.localStream!.getVideoTracks()[0]);
+                          // Note: Helper might not be defined, use MediaStreamTrack methods
+                          try {
+                            final videoTracks = controller.callService.localStream!.getVideoTracks();
+                            if (videoTracks.isNotEmpty) {
+                              Helper.switchCamera(videoTracks[0]);
+                            }
+                          } catch (e) {
+                            Get.log('Error switching camera: $e');
+                          }
                         }
                       },
                     ),

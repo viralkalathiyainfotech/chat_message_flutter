@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:realm/realm.dart';
 import 'realm_models.dart';
+import 'package:get/get.dart';
+import '../../services/storage_service.dart';
 
 class RealmHelper {
   static final RealmHelper _instance = RealmHelper._internal();
@@ -159,12 +161,38 @@ class RealmHelper {
   }
 
   List<MessageRealm> getMessagesForUser(String userId) {
-    return _realm.query<MessageRealm>('senderId == \$0 OR receiverId == \$0 SORT(createdAt ASC)', [userId]).toList();
+    final user = _realm.find<UserRealm>(userId);
+    if (user != null && user.isGroup == true) {
+      return _realm.query<MessageRealm>('receiverId == \$0 SORT(createdAt ASC)', [userId]).toList();
+    } else {
+      final myId = Get.find<StorageService>().getUserId();
+      return _realm.query<MessageRealm>('(senderId == \$0 AND receiverId == \$1) OR (senderId == \$1 AND receiverId == \$0) SORT(createdAt ASC)', [userId, myId]).toList();
+    }
   }
 
   MessageRealm? getLastMessageForUser(String userId) {
-    final messages = _realm.query<MessageRealm>('senderId == \$0 OR receiverId == \$0 SORT(createdAt DESC)', [userId]);
+    final user = _realm.find<UserRealm>(userId);
+    RealmResults<MessageRealm> messages;
+    if (user != null && user.isGroup == true) {
+      messages = _realm.query<MessageRealm>('receiverId == \$0 SORT(createdAt DESC)', [userId]);
+    } else {
+      final myId = Get.find<StorageService>().getUserId();
+      messages = _realm.query<MessageRealm>('(senderId == \$0 AND receiverId == \$1) OR (senderId == \$1 AND receiverId == \$0) SORT(createdAt DESC)', [userId, myId]);
+    }
     return messages.isNotEmpty ? messages.first : null;
+  }
+
+  int getUnreadCountForUser(String userId) {
+    final user = _realm.find<UserRealm>(userId);
+    final myId = Get.find<StorageService>().getUserId();
+    
+    if (user != null && user.isGroup == true) {
+      // For groups, unread messages are ones sent to the group by others where status != 'read'
+      return _realm.query<MessageRealm>("receiverId == \$0 AND senderId != \$1 AND status != 'read'", [userId, myId]).length;
+    } else {
+      // For 1-on-1, unread messages are ones sent by the other user where status != 'read'
+      return _realm.query<MessageRealm>("senderId == \$0 AND receiverId == \$1 AND status != 'read'", [userId, myId]).length;
+    }
   }
 
   List<MessageRealm> getPendingMessages() {

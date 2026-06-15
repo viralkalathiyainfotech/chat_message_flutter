@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
+import 'dart:convert';
 
 import '../../../../constants/color_constants.dart';
 import '../../../../constants/asset_constants.dart';
@@ -98,32 +99,32 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                Obx(() {
-                  if (user.isGroup == true) {
-                     return const Text(
-                       'Tap here for group info',
-                       style: TextStyle(fontSize: 12, color: Colors.grey),
-                     );
-                  }
-                  if (controller.isRemoteTyping.value) {
-                    return const Text(
-                      'typing...',
+                if (user.isGroup == true) 
+                  const Text(
+                    'Tap here for group info',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  )
+                else 
+                  Obx(() {
+                    if (controller.isRemoteTyping.value) {
+                      return const Text(
+                        'typing...',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: ColorConstants.primaryBlue,
+                        ),
+                      );
+                    }
+                    return Text(
+                      controller.isUserOnline.value ? 'Online' : 'Offline',
                       style: TextStyle(
                         fontSize: 12,
-                        color: ColorConstants.primaryBlue,
+                        color: controller.isUserOnline.value
+                            ? Colors.green
+                            : Colors.grey,
                       ),
                     );
-                  }
-                  return Text(
-                    controller.isUserOnline.value ? 'Online' : 'Offline',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: controller.isUserOnline.value
-                          ? Colors.green
-                          : Colors.grey,
-                    ),
-                  );
-                }),
+                  }),
               ],
             ),
           ),
@@ -132,17 +133,43 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       actions: [
         IconButton(
           icon: const Icon(Icons.videocam),
-          onPressed: () => Get.find<CallController>().startCall(
-            controller.remoteUser.id,
-            video: true,
-          ),
+          onPressed: () {
+            List<String>? participants;
+            if (user.isGroup == true && user.membersListJson != null) {
+              try {
+                final List<dynamic> decoded = jsonDecode(user.membersListJson!);
+                participants = decoded.map((e) => e.toString()).toList();
+              } catch (e) {
+                Get.log('Error decoding group members: $e');
+              }
+            }
+            Get.find<CallController>().startCall(
+              controller.remoteUser.id,
+              video: true,
+              isGroup: user.isGroup == true,
+              participants: participants,
+            );
+          },
         ),
         IconButton(
           icon: const Icon(Icons.call),
-          onPressed: () => Get.find<CallController>().startCall(
-            controller.remoteUser.id,
-            video: false,
-          ),
+          onPressed: () {
+            List<String>? participants;
+            if (user.isGroup == true && user.membersListJson != null) {
+              try {
+                final List<dynamic> decoded = jsonDecode(user.membersListJson!);
+                participants = decoded.map((e) => e.toString()).toList();
+              } catch (e) {
+                Get.log('Error decoding group members: $e');
+              }
+            }
+            Get.find<CallController>().startCall(
+              controller.remoteUser.id,
+              video: false,
+              isGroup: user.isGroup == true,
+              participants: participants,
+            );
+          },
         ),
         IconButton(icon: const Icon(Icons.more_vert), onPressed: () {}),
       ],
@@ -330,6 +357,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         _buildAudioBubble(message, isMe, context)
                       else if (message.content?.type == 'file')
                         _buildDocumentBubble(message, isMe, context)
+                      else if (message.content?.type == 'system')
+                        Text(
+                          message.content?.content?.replaceAll('**', '') ?? 'System message',
+                          style: TextStyle(
+                            color: isMe ? Colors.white : Theme.of(context).textTheme.bodyLarge?.color,
+                            fontStyle: FontStyle.italic,
+                            fontSize: 14,
+                          ),
+                        )
                       else
                         Text(
                           'Attachment: ${message.content?.type}',

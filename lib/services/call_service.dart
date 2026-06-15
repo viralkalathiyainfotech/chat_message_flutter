@@ -9,9 +9,8 @@ class CallService extends GetxService {
   final SocketService _socketService = Get.find<SocketService>();
   final StorageService _storageService = Get.find<StorageService>();
   
-  RTCPeerConnection? _peerConnection;
+  Map<String, RTCPeerConnection> peerConnections = {};
   MediaStream? localStream;
-  MediaStream? remoteStream;
 
   // Reactive states
   final RxBool isCalling = false.obs;
@@ -22,64 +21,69 @@ class CallService extends GetxService {
   final RxBool isScreenSharing = false.obs;
   
   final RxBool hasLocalStream = false.obs;
-  final RxBool hasRemoteStream = false.obs;
+  final RxBool hasRemoteStream = false.obs; // True if ANY remote stream exists
   
   final Rx<RTCVideoRenderer> localRenderer = RTCVideoRenderer().obs;
-  final Rx<RTCVideoRenderer> remoteRenderer = RTCVideoRenderer().obs;
+  final RxMap<String, RTCVideoRenderer> remoteRenderers = <String, RTCVideoRenderer>{}.obs;
+  final RxMap<String, MediaStream> remoteStreams = <String, MediaStream>{}.obs;
 
   String? currentRoomId;
-  String? remoteUserId;
+  String? remoteUserId; // for 1-to-1, or groupId for group calls
   Map<String, dynamic>? incomingCallData;
   DateTime? callStartTime;
   bool isIncoming = false;
   bool isVideoCall = false;
+  bool isGroupCall = false;
+  Set<String> callParticipants = {}; // The current participants
 
   @override
   void onInit() {
     super.onInit();
     _setupSocketListeners();
-    _initRenderers();
-  }
-
-  Future<void> _initRenderers() async {
-    await localRenderer.value.initialize();
-    await remoteRenderer.value.initialize();
+    localRenderer.value.initialize();
   }
 
   void _setupSocketListeners() {
     _socketService.onIncomingCall = (data) {
       if (isInCall.value || isCalling.value) {
-        // Already in a call, backend should handle user-in-call, but we can ignore
+        // Already in a call, ignore
         return;
       }
       incomingCallData = data;
-      remoteUserId = data['fromEmail'];
+      remoteUserId = data['groupId'] ?? data['fromEmail'];
       currentRoomId = data['roomId'];
       isIncoming = true;
       isVideoCall = data['type'] == 'video';
+      isGroupCall = data['isGroupCall'] == true;
+      if (data['participants'] != null) {
+        callParticipants = Set<String>.from(data['participants'].map((e) => e.toString()));
+      }
       isReceivingCall.value = true;
     };
 
     _socketService.onCallAccepted = (data) async {
       final signal = data['signal'];
-      if (signal != null && _peerConnection != null) {
+      final fromEmail = data['fromEmail'];
+      if (signal != null && peerConnections.containsKey(fromEmail)) {
         if (signal['type'] == 'answer') {
-          await _peerConnection!.setRemoteDescription(
+          await peerConnections[fromEmail]!.setRemoteDescription(
             RTCSessionDescription(signal['sdp'], signal['type'])
           );
         }
       }
       isCalling.value = false;
       isInCall.value = true;
-      callStartTime = DateTime.now();
+      callStartTime ??= DateTime.now();
     };
 
     _socketService.onCallSignal = (data) async {
       final signal = data['signal'];
-      if (signal != null && _peerConnection != null) {
+      final from = data['from'];
+      if (signal != null && peerConnections.containsKey(from)) {
+        final pc = peerConnections[from]!;
         if (signal['type'] == 'candidate' || signal['candidate'] != null) {
           final candidateMap = signal['candidate'] ?? signal;
-          await _peerConnection!.addCandidate(
+          await pc.addCandidate(
             RTCIceCandidate(
               candidateMap['candidate'],
               candidateMap['sdpMid'],
@@ -87,149 +91,101 @@ class CallService extends GetxService {
             )
           );
         } else if (signal['type'] == 'offer' || signal['type'] == 'answer') {
-          await _peerConnection!.setRemoteDescription(
+          await pc.setRemoteDescription(
             RTCSessionDescription(signal['sdp'], signal['type'])
           );
         }
       }
     };
 
+    // participant-joined (for Mesh topology)
+    _socketService.socket?.on("participant-joined", (data) async {
+      final newParticipantId = data['newParticipantId'];
+      final roomId = data['roomId'];
+      if (newParticipantId != _storageService.getUserId() && roomId == currentRoomId) {
+        callParticipants.add(newParticipantId);
+        await _createPeerConnection(newParticipantId, isInitiator: true);
+      }
+    });
+
     _socketService.onEndCall = (data) {
-      endCallLocally();
+      final from = data['from'];
+      if (isGroupCall) {
+         _removePeer(from);
+         if (peerConnections.isEmpty) {
+            endCallLocally();
+         }
+      } else {
+         endCallLocally();
+      }
     };
 
+    _socketService.socket?.on("participant-lefted", (data) {
+       final leavingUser = data['leavingUser'];
+       if (leavingUser != null) {
+         _removePeer(leavingUser);
+         if (peerConnections.isEmpty) {
+           endCallLocally();
+         }
+       }
+    });
+
     _socketService.onUserInCall = (data) {
-      final message = data['message'] ?? 'User is currently in another call';
-      Get.snackbar('Call Failed', message, backgroundColor: Colors.red, colorText: Colors.white);
-      endCallLocally();
+      if (!isGroupCall) {
+        final message = data['message'] ?? 'User is currently in another call';
+        Get.snackbar('Call Failed', message, backgroundColor: Colors.red, colorText: Colors.white);
+        endCallLocally();
+      }
     };
   }
 
-  Future<void> makeCall(String targetUserId, {bool video = true}) async {
-    remoteUserId = targetUserId;
+  Future<void> makeCall(String targetId, {bool video = true, bool isGroup = false, List<String>? participants}) async {
+    remoteUserId = targetId; // user ID or Group ID
     currentRoomId = const Uuid().v4();
     isCalling.value = true;
     isIncoming = false;
     isVideoCall = video;
+    isGroupCall = isGroup;
     
-    await _setupPeerConnection(video: video);
+    callParticipants = participants != null ? Set<String>.from(participants) : { _storageService.getUserId()!, targetId };
     
-    final offer = await _peerConnection!.createOffer();
-    await _peerConnection!.setLocalDescription(offer);
-
-    _socketService.emitCallRequest({
-      'fromEmail': _storageService.getUserId(),
-      'toEmail': remoteUserId,
-      'signal': {
-        'type': offer.type,
-        'sdp': offer.sdp,
-      },
-      'type': video ? 'video' : 'audio',
-      'isGroupCall': false,
-      'participants': [_storageService.getUserId(), remoteUserId],
-      'roomId': currentRoomId,
-    });
+    await _initLocalStream(video: video);
+    
+    // In a Mesh, the caller creates an offer for every participant
+    final otherMembers = callParticipants.where((id) => id != _storageService.getUserId()).toList();
+    
+    for (var memberId in otherMembers) {
+      await _createPeerConnection(memberId, isInitiator: true);
+    }
   }
 
   Future<void> acceptCall() async {
     if (incomingCallData == null) return;
     
     final bool isVideo = incomingCallData!['type'] == 'video';
-    await _setupPeerConnection(video: isVideo);
-
-    final signal = incomingCallData!['signal'];
-    if (signal != null && signal['type'] == 'offer') {
-      await _peerConnection!.setRemoteDescription(
-        RTCSessionDescription(signal['sdp'], signal['type'])
-      );
-    }
-
-    final answer = await _peerConnection!.createAnswer();
-    await _peerConnection!.setLocalDescription(answer);
-
-    _socketService.emitCallAccept({
-      'signal': {
-        'type': answer.type,
-        'sdp': answer.sdp,
-      },
-      'fromEmail': incomingCallData!['fromEmail'], // The original caller
-      'toEmail': _storageService.getUserId(), // The user accepting
-      'participants': incomingCallData!['participants'] ?? [_storageService.getUserId(), incomingCallData!['fromEmail']],
-      'roomId': currentRoomId,
-    });
+    await _initLocalStream(video: isVideo);
 
     isReceivingCall.value = false;
     isInCall.value = true;
     callStartTime = DateTime.now();
-  }
 
-  void declineCall() {
-    _socketService.emitEndCall({
-      'to': remoteUserId,
-      'from': _storageService.getUserId(),
-      'roomId': currentRoomId,
-    });
-    _resetCallState();
-  }
-
-  void endCall() {
-    _socketService.emitEndCall({
-      'to': remoteUserId,
-      'from': _storageService.getUserId(),
-      'roomId': currentRoomId,
-    });
-    endCallLocally();
-  }
-
-  void endCallLocally() {
-    if (!isIncoming && remoteUserId != null) {
-      final duration = callStartTime != null ? DateTime.now().difference(callStartTime!).inSeconds : 0;
-      _socketService.emitSaveCallMessage({
-        'senderId': _storageService.getUserId(),
-        'receiverId': remoteUserId,
-        'callType': isVideoCall ? 'video' : 'audio',
-        'status': duration > 0 ? 'ended' : 'missed',
-        'duration': duration,
-        'timestamp': DateTime.now().toIso8601String(),
-        'callfrom': _storageService.getUserId(),
-        'joined': duration > 0,
-      });
+    final callerId = incomingCallData!['fromEmail'];
+    final signal = incomingCallData!['signal'];
+    
+    // Connect to the caller
+    await _createPeerConnection(callerId, isInitiator: false, offer: signal);
+    
+    // Connect to other existing participants (if group call)
+    if (isGroupCall && incomingCallData!['participants'] != null) {
+      final others = List<String>.from(incomingCallData!['participants'])
+          .where((id) => id != _storageService.getUserId() && id != callerId);
+      for (var pId in others) {
+        await _createPeerConnection(pId, isInitiator: true);
+      }
     }
-    _resetCallState();
   }
 
-  Future<void> _setupPeerConnection({required bool video}) async {
-    final configuration = {
-      'iceServers': [
-        {'url': 'stun:stun.l.google.com:19302'},
-      ]
-    };
-
-    _peerConnection = await createPeerConnection(configuration);
-
-    _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
-      _socketService.emitCallSignal({
-        'signal': {
-          'type': 'candidate',
-          'candidate': {
-            'candidate': candidate.candidate,
-            'sdpMid': candidate.sdpMid,
-            'sdpMLineIndex': candidate.sdpMLineIndex,
-          }
-        },
-        'to': remoteUserId,
-        'from': _storageService.getUserId(),
-        'roomId': currentRoomId,
-      });
-    };
-
-    _peerConnection!.onAddStream = (MediaStream stream) {
-      remoteStream = stream;
-      remoteRenderer.value.srcObject = stream;
-      hasRemoteStream.value = true;
-      remoteRenderer.refresh();
-    };
-
+  Future<void> _initLocalStream({required bool video}) async {
     final mediaConstraints = {
       'audio': true,
       'video': video ? {
@@ -248,13 +204,152 @@ class CallService extends GetxService {
       localRenderer.value.srcObject = localStream;
       hasLocalStream.value = true;
       localRenderer.refresh();
-
-      localStream!.getTracks().forEach((track) {
-        _peerConnection!.addTrack(track, localStream!);
-      });
     } catch (e) {
       Get.log("Error getting user media: $e", isError: true);
     }
+  }
+
+  Future<void> _createPeerConnection(String peerId, {required bool isInitiator, dynamic offer}) async {
+    if (peerConnections.containsKey(peerId)) return;
+
+    final configuration = {
+      'iceServers': [
+        {'url': 'stun:stun.l.google.com:19302'},
+      ]
+    };
+
+    final pc = await createPeerConnection(configuration);
+    peerConnections[peerId] = pc;
+
+    if (localStream != null) {
+      localStream!.getTracks().forEach((track) {
+        pc.addTrack(track, localStream!);
+      });
+    }
+
+    pc.onIceCandidate = (RTCIceCandidate candidate) {
+      _socketService.emitCallSignal({
+        'signal': {
+          'type': 'candidate',
+          'candidate': {
+            'candidate': candidate.candidate,
+            'sdpMid': candidate.sdpMid,
+            'sdpMLineIndex': candidate.sdpMLineIndex,
+          }
+        },
+        'to': peerId,
+        'from': _storageService.getUserId(),
+        'roomId': currentRoomId,
+      });
+    };
+
+    pc.onAddStream = (MediaStream stream) async {
+      remoteStreams[peerId] = stream;
+      final renderer = RTCVideoRenderer();
+      await renderer.initialize();
+      renderer.srcObject = stream;
+      remoteRenderers[peerId] = renderer;
+      hasRemoteStream.value = true;
+    };
+
+    if (isInitiator) {
+      final pcOffer = await pc.createOffer();
+      await pc.setLocalDescription(pcOffer);
+      
+      _socketService.emitCallRequest({
+        'fromEmail': _storageService.getUserId(),
+        'toEmail': peerId,
+        'signal': {
+          'type': pcOffer.type,
+          'sdp': pcOffer.sdp,
+        },
+        'type': isVideoCall ? 'video' : 'audio',
+        'isGroupCall': isGroupCall,
+        'participants': callParticipants.toList(),
+        'groupId': isGroupCall ? remoteUserId : null,
+        'roomId': currentRoomId,
+      });
+    } else if (offer != null) {
+      if (offer['type'] == 'offer') {
+        await pc.setRemoteDescription(RTCSessionDescription(offer['sdp'], offer['type']));
+        final answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+
+        _socketService.emitCallAccept({
+          'signal': {
+            'type': answer.type,
+            'sdp': answer.sdp,
+          },
+          'fromEmail': peerId,
+          'toEmail': _storageService.getUserId(),
+          'participants': callParticipants.toList(),
+          'roomId': currentRoomId,
+        });
+      }
+    }
+  }
+
+  void _removePeer(String peerId) {
+    if (peerConnections.containsKey(peerId)) {
+      peerConnections[peerId]?.close();
+      peerConnections[peerId]?.dispose();
+      peerConnections.remove(peerId);
+    }
+    if (remoteStreams.containsKey(peerId)) {
+      remoteStreams[peerId]?.dispose();
+      remoteStreams.remove(peerId);
+    }
+    if (remoteRenderers.containsKey(peerId)) {
+      remoteRenderers[peerId]?.srcObject = null;
+      remoteRenderers[peerId]?.dispose();
+      remoteRenderers.remove(peerId);
+    }
+    callParticipants.remove(peerId);
+    hasRemoteStream.value = remoteRenderers.isNotEmpty;
+  }
+
+  void declineCall() {
+    _socketService.emitEndCall({
+      'to': incomingCallData?['fromEmail'],
+      'from': _storageService.getUserId(),
+      'roomId': currentRoomId,
+    });
+    _resetCallState();
+  }
+
+  void endCall() {
+    for (var peerId in peerConnections.keys) {
+      _socketService.emitEndCall({
+        'to': peerId,
+        'from': _storageService.getUserId(),
+        'roomId': currentRoomId,
+      });
+    }
+    if (isGroupCall && callParticipants.length > 2) {
+       _socketService.socket?.emit("participant-left", {
+          "leavingUser": _storageService.getUserId(),
+          "duration": callStartTime != null ? DateTime.now().difference(callStartTime!).inSeconds : 0,
+          "roomId": currentRoomId,
+       });
+    }
+    endCallLocally();
+  }
+
+  void endCallLocally() {
+    if (!isIncoming && remoteUserId != null) {
+      final duration = callStartTime != null ? DateTime.now().difference(callStartTime!).inSeconds : 0;
+      _socketService.emitSaveCallMessage({
+        'senderId': _storageService.getUserId(),
+        'receiverId': remoteUserId,
+        'callType': isVideoCall ? 'video' : 'audio',
+        'status': duration > 0 ? 'ended' : 'missed',
+        'duration': duration,
+        'timestamp': DateTime.now().toIso8601String(),
+        'callfrom': _storageService.getUserId(),
+        'joined': duration > 0,
+      });
+    }
+    _resetCallState();
   }
 
   void toggleVideo() {
@@ -280,7 +375,8 @@ class CallService extends GetxService {
   }
 
   Future<void> toggleScreenShare() async {
-    if (localStream == null || _peerConnection == null) return;
+    // Screen sharing is more complex in a mesh network, simplified for now
+    if (localStream == null || peerConnections.isEmpty) return;
 
     if (!isScreenSharing.value) {
       try {
@@ -290,10 +386,13 @@ class CallService extends GetxService {
         });
 
         final videoTrack = displayMedia.getVideoTracks()[0];
-        final senders = await _peerConnection!.getSenders();
-        for (var sender in senders) {
-          if (sender.track?.kind == 'video') {
-            await sender.replaceTrack(videoTrack);
+        
+        for (var pc in peerConnections.values) {
+          final senders = await pc.getSenders();
+          for (var sender in senders) {
+            if (sender.track?.kind == 'video') {
+              await sender.replaceTrack(videoTrack);
+            }
           }
         }
         
@@ -301,7 +400,6 @@ class CallService extends GetxService {
         localRenderer.refresh();
         isScreenSharing.value = true;
         
-        // Listen to native stop screen sharing button (e.g. Android/Chrome notification)
         videoTrack.onEnded = () {
           toggleScreenShare(); // revert back to camera
         };
@@ -319,14 +417,16 @@ class CallService extends GetxService {
         });
         
         final videoTrack = cameraStream.getVideoTracks()[0];
-        final senders = await _peerConnection!.getSenders();
-        for (var sender in senders) {
-          if (sender.track?.kind == 'video') {
-            await sender.replaceTrack(videoTrack);
+        for (var pc in peerConnections.values) {
+          final senders = await pc.getSenders();
+          for (var sender in senders) {
+            if (sender.track?.kind == 'video') {
+              await sender.replaceTrack(videoTrack);
+            }
           }
         }
         
-        localRenderer.value.srcObject = localStream; // original audio/video stream
+        localRenderer.value.srcObject = localStream; 
         localRenderer.refresh();
         isScreenSharing.value = false;
       } catch (e) {
@@ -345,30 +445,40 @@ class CallService extends GetxService {
     callStartTime = null;
     isIncoming = false;
     isVideoCall = false;
+    isGroupCall = false;
+    callParticipants.clear();
 
     localStream?.getTracks().forEach((track) => track.stop());
     localStream?.dispose();
     localStream = null;
     hasLocalStream.value = false;
 
-    remoteStream?.getTracks().forEach((track) => track.stop());
-    remoteStream?.dispose();
-    remoteStream = null;
+    for (var stream in remoteStreams.values) {
+      stream.getTracks().forEach((track) => track.stop());
+      stream.dispose();
+    }
+    remoteStreams.clear();
     hasRemoteStream.value = false;
 
-    _peerConnection?.close();
-    _peerConnection?.dispose();
-    _peerConnection = null;
+    for (var pc in peerConnections.values) {
+      pc.close();
+      pc.dispose();
+    }
+    peerConnections.clear();
+
+    for (var renderer in remoteRenderers.values) {
+      renderer.srcObject = null;
+      renderer.dispose();
+    }
+    remoteRenderers.clear();
 
     localRenderer.value.srcObject = null;
-    remoteRenderer.value.srcObject = null;
   }
 
   @override
   void onClose() {
     _resetCallState();
     localRenderer.value.dispose();
-    remoteRenderer.value.dispose();
     super.onClose();
   }
 }

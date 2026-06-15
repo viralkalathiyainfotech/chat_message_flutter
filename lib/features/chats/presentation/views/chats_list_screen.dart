@@ -172,7 +172,7 @@ class ChatsListScreen extends StatelessWidget {
       }),
       trailing: Obx(() {
         controller.updateTrigger.value;
-        int unreadCount = RealmHelper().realm.query<MessageRealm>("senderId == \$0 AND status != 'read'", [chat.id]).length;
+        int unreadCount = RealmHelper().getUnreadCountForUser(chat.id);
         
         MessageRealm? lastMessage = RealmHelper().getLastMessageForUser(chat.id);
         String timeText = '';
