@@ -79,9 +79,9 @@ class ChatsController extends GetxController {
       final msgB = RealmHelper().getLastMessageForUser(b.id);
 
       if (msgA == null && msgB == null) return 0;
-      // We place chats with NO messages at the TOP so new groups/chats are easily visible
-      if (msgA == null) return -1;
-      if (msgB == null) return 1;
+      // We place chats with NO messages at the BOTTOM
+      if (msgA == null) return 1;
+      if (msgB == null) return -1;
 
       return msgB.createdAt.compareTo(msgA.createdAt);
     });

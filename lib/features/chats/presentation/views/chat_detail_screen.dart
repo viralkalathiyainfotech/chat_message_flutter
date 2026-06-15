@@ -55,7 +55,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: _buildAppBar(context, controller),
@@ -85,7 +84,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             backgroundImage: user.photo != null
                 ? CachedNetworkImageProvider(user.photo!)
                 : null,
-            child: user.photo == null ? Icon(user.isGroup == true ? Icons.group : Icons.person) : null,
+            child: user.photo == null
+                ? Icon(user.isGroup == true ? Icons.group : Icons.person)
+                : null,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -99,12 +100,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                if (user.isGroup == true) 
+                if (user.isGroup == true)
                   const Text(
                     'Tap here for group info',
                     style: TextStyle(fontSize: 12, color: Colors.grey),
                   )
-                else 
+                else
                   Obx(() {
                     if (controller.isRemoteTyping.value) {
                       return const Text(
@@ -228,215 +229,280 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     return AnimatedChatBubble(
       duration: const Duration(milliseconds: 300),
       child: GestureDetector(
-        onLongPress: () => _showMessageOptions(context, controller, message, isMe),
+        onLongPress: () =>
+            _showMessageOptions(context, controller, message, isMe),
         child: Align(
           alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
           child: Stack(
             clipBehavior: Clip.none,
-          children: [
-            Column(
-              crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-              children: [
-                // Sender name for group chats
-                if (!isMe && controller.remoteUser.isGroup == true) ...[
+            children: [
+              Column(
+                crossAxisAlignment: isMe
+                    ? CrossAxisAlignment.end
+                    : CrossAxisAlignment.start,
+                children: [
+                  // Sender name for group chats
+                  if (!isMe && controller.remoteUser.isGroup == true) ...[
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2, left: 4),
+                      child: Builder(
+                        builder: (context) {
+                          final sender = controller.getUserById(
+                            message.senderId,
+                          );
+                          return Text(
+                            sender?.userName ?? 'Unknown User',
+                            style: TextStyle(
+                              color: ColorConstants.primaryBlue,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                  // Time above the bubble
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 2, left: 4),
-                    child: Builder(
-                      builder: (context) {
-                        final sender = controller.getUserById(message.senderId);
-                        return Text(
-                          sender?.userName ?? 'Unknown User',
-                          style: TextStyle(
-                            color: ColorConstants.primaryBlue,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
+                    padding: const EdgeInsets.only(
+                      bottom: 4,
+                      left: 4,
+                      right: 4,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (!isMe) ...[
+                          const Icon(
+                            Icons.access_time,
+                            size: 12,
+                            color: Colors.grey,
                           ),
-                        );
-                      }
+                          const SizedBox(width: 4),
+                        ],
+                        Text(
+                          "${message.createdAt.hour.toString().padLeft(2, '0')}:${message.createdAt.minute.toString().padLeft(2, '0')}",
+                          style: const TextStyle(
+                            color: Colors.grey,
+                            fontSize: 12,
+                          ),
+                        ),
+                        if (isMe) ...[
+                          const SizedBox(width: 4),
+                          Icon(
+                            message.isPending
+                                ? Icons.access_time
+                                : (message.status == 'sent'
+                                      ? Icons.done
+                                      : Icons.done_all),
+                            size: 14,
+                            color: message.status == 'read'
+                                ? Colors.lightBlueAccent
+                                : Colors.grey,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  Container(
+                    margin: EdgeInsets.only(
+                      bottom: message.reactions.isNotEmpty ? 16 : 8,
+                      top: needsExtraTopPadding ? 16 : 4,
+                    ),
+                    padding:
+                        (message.content?.type == 'image' ||
+                            message.content?.type == 'location')
+                        ? EdgeInsets.zero
+                        : const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
+                    constraints: BoxConstraints(
+                      maxWidth: MediaQuery.of(context).size.width * 0.75,
+                    ),
+                    decoration: BoxDecoration(
+                      color: (message.content?.type == 'call')
+                          ? Theme.of(context).cardColor
+                          : (isMe
+                                ? ColorConstants.primaryBlue
+                                : Theme.of(context).cardColor),
+                      borderRadius: BorderRadius.only(
+                        topLeft: const Radius.circular(16),
+                        topRight: const Radius.circular(16),
+                        bottomLeft: isMe
+                            ? const Radius.circular(16)
+                            : Radius.zero,
+                        bottomRight: isMe
+                            ? Radius.zero
+                            : const Radius.circular(16),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.05),
+                          blurRadius: 5,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        if (message.content?.type == 'text')
+                          Text(
+                            EncryptionUtil.decrypt(
+                              message.content?.content ?? '',
+                            ),
+                            style: TextStyle(
+                              color: isMe
+                                  ? Colors.white
+                                  : Theme.of(
+                                      context,
+                                    ).textTheme.bodyLarge?.color,
+                              fontSize: 15,
+                            ),
+                          )
+                        else if (message.content?.type == 'image' ||
+                            (message.content?.type == 'file' &&
+                                (message.content?.fileType?.contains('image') ??
+                                    false)))
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child:
+                                (message.content!.content?.startsWith('http') ??
+                                        false) ||
+                                    (message.content!.fileUrl?.startsWith(
+                                          'http',
+                                        ) ??
+                                        false)
+                                ? Image.network(
+                                    message.content!.fileUrl ??
+                                        message.content!.content!,
+                                    width: 250,
+                                    height: 250,
+                                    fit: BoxFit.cover,
+                                    errorBuilder:
+                                        (context, error, stackTrace) =>
+                                            const Icon(
+                                              Icons.broken_image,
+                                              size: 50,
+                                            ),
+                                  )
+                                : Image.file(
+                                    File(message.content!.content ?? ''),
+                                    width: 250,
+                                    height: 250,
+                                    fit: BoxFit.cover,
+                                    errorBuilder:
+                                        (context, error, stackTrace) =>
+                                            const Icon(
+                                              Icons.broken_image,
+                                              size: 50,
+                                            ),
+                                  ),
+                          )
+                        else if (message.content?.type == 'call')
+                          _buildCallBubble(message, isMe, context)
+                        else if (message.content?.type == 'location')
+                          _buildLocationBubble(message, isMe, context)
+                        else if (message.content?.type == 'contact')
+                          _buildContactBubble(message, isMe, context)
+                        else if (message.content?.type == 'file' &&
+                            (message.content?.fileType?.contains('audio') ??
+                                false))
+                          _buildAudioBubble(message, isMe, context)
+                        else if (message.content?.type == 'file')
+                          _buildDocumentBubble(message, isMe, context)
+                        else if (message.content?.type == 'system')
+                          Text(
+                            message.content?.content?.replaceAll('**', '') ??
+                                'System message',
+                            style: TextStyle(
+                              color: isMe
+                                  ? Colors.white
+                                  : Theme.of(
+                                      context,
+                                    ).textTheme.bodyLarge?.color,
+                              fontStyle: FontStyle.italic,
+                              fontSize: 14,
+                            ),
+                          )
+                        else
+                          Text(
+                            'Attachment: ${message.content?.type}',
+                            style: TextStyle(
+                              color: isMe ? Colors.white : Colors.black,
+                            ),
+                          ),
+
+                        if (message.edited) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            '(edited)',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: isMe
+                                  ? Colors.white.withValues(alpha: 0.7)
+                                  : Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ],
-                // Time above the bubble
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4, left: 4, right: 4),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (!isMe) ...[
-                        const Icon(Icons.access_time, size: 12, color: Colors.grey),
-                        const SizedBox(width: 4),
-                      ],
-                      Text(
-                        "${message.createdAt.hour.toString().padLeft(2, '0')}:${message.createdAt.minute.toString().padLeft(2, '0')}",
-                        style: const TextStyle(
-                          color: Colors.grey,
-                          fontSize: 12,
-                        ),
-                      ),
-                      if (isMe) ...[
-                        const SizedBox(width: 4),
-                        Icon(
-                          message.isPending 
-                            ? Icons.access_time 
-                            : (message.status == 'sent' ? Icons.done : Icons.done_all),
-                          size: 14,
-                          color: message.status == 'read' ? Colors.lightBlueAccent : Colors.grey,
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                Container(
-                  margin: EdgeInsets.only(
-                    bottom: message.reactions.isNotEmpty ? 16 : 8,
-                    top: needsExtraTopPadding ? 16 : 4,
-                  ),
-                  padding: (message.content?.type == 'image' || message.content?.type == 'location')
-                      ? EdgeInsets.zero
-                      : const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  constraints: BoxConstraints(
-                    maxWidth: MediaQuery.of(context).size.width * 0.75,
-                  ),
-                  decoration: BoxDecoration(
-                    color: (message.content?.type == 'call')
-                        ? Theme.of(context).cardColor
-                        : (isMe ? ColorConstants.primaryBlue : Theme.of(context).cardColor),
-                    borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(16),
-                      topRight: const Radius.circular(16),
-                      bottomLeft: isMe ? const Radius.circular(16) : Radius.zero,
-                      bottomRight: isMe ? Radius.zero : const Radius.circular(16),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.05),
-                        blurRadius: 5,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      if (message.content?.type == 'text')
-                        Text(
-                          EncryptionUtil.decrypt(message.content?.content ?? ''),
-                          style: TextStyle(
-                            color: isMe
-                                ? Colors.white
-                                : Theme.of(context).textTheme.bodyLarge?.color,
-                            fontSize: 15,
-                          ),
-                        )
-                      else if (message.content?.type == 'image' || (message.content?.type == 'file' && (message.content?.fileType?.contains('image') ?? false)))
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: (message.content!.content?.startsWith('http') ?? false) || (message.content!.fileUrl?.startsWith('http') ?? false)
-                              ? Image.network(
-                                  message.content!.fileUrl ?? message.content!.content!,
-                                  width: 250,
-                                  height: 250,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 50),
-                                )
-                              : Image.file(
-                                  File(message.content!.content ?? ''),
-                                  width: 250,
-                                  height: 250,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 50),
-                                ),
-                        )
-                      else if (message.content?.type == 'call')
-                        _buildCallBubble(message, isMe, context)
-                      else if (message.content?.type == 'location')
-                        _buildLocationBubble(message, isMe, context)
-                      else if (message.content?.type == 'contact')
-                        _buildContactBubble(message, isMe, context)
-                      else if (message.content?.type == 'file' && (message.content?.fileType?.contains('audio') ?? false))
-                        _buildAudioBubble(message, isMe, context)
-                      else if (message.content?.type == 'file')
-                        _buildDocumentBubble(message, isMe, context)
-                      else if (message.content?.type == 'system')
-                        Text(
-                          message.content?.content?.replaceAll('**', '') ?? 'System message',
-                          style: TextStyle(
-                            color: isMe ? Colors.white : Theme.of(context).textTheme.bodyLarge?.color,
-                            fontStyle: FontStyle.italic,
-                            fontSize: 14,
-                          ),
-                        )
-                      else
-                        Text(
-                          'Attachment: ${message.content?.type}',
-                          style: TextStyle(
-                            color: isMe ? Colors.white : Colors.black,
-                          ),
-                        ),
-    
-                      if (message.edited) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          '(edited)',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: isMe ? Colors.white.withValues(alpha: 0.7) : Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
-            ),
+              ),
 
-            // Floating Reactions
-            if (message.reactions.isNotEmpty)
-              Positioned(
-                bottom: -8,
-                right: isMe ? 12 : null,
-                left: isMe ? null : 12,
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).scaffoldBackgroundColor,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.15),
-                        blurRadius: 4,
-                        spreadRadius: 1,
-                        offset: const Offset(0, 1),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        message.reactions.map((r) => r.emoji).toSet().join(' '),
-                        style: const TextStyle(fontSize: 14, height: 1.1),
-                      ),
-                      if (message.reactions.length > 1)
-                        Padding(
-                          padding: const EdgeInsets.only(left: 4),
-                          child: Text(
-                            '${message.reactions.length}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
-                              fontWeight: FontWeight.bold,
+              // Floating Reactions
+              if (message.reactions.isNotEmpty)
+                Positioned(
+                  bottom: -8,
+                  right: isMe ? 12 : null,
+                  left: isMe ? null : 12,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).scaffoldBackgroundColor,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.15),
+                          blurRadius: 4,
+                          spreadRadius: 1,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          message.reactions
+                              .map((r) => r.emoji)
+                              .toSet()
+                              .join(' '),
+                          style: const TextStyle(fontSize: 14, height: 1.1),
+                        ),
+                        if (message.reactions.length > 1)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 4),
+                            child: Text(
+                              '${message.reactions.length}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
-    ));
+    );
   }
 
   void _showMessageOptions(
@@ -646,7 +712,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         onDocumentTap: () async {
           FilePickerResult? result = await FilePicker.pickFiles();
           if (result != null) {
-            // controller.sendAttachment(result.files.single.path!, 'document', result.files.single.size.toString());
+            final file = result.files.single;
+            final path = file.path;
+            if (path == null) {
+              Get.snackbar(
+                'Attachment failed',
+                'Selected file is not available on this device.',
+              );
+              return;
+            }
+
+            await controller.sendAttachment(
+              path: path,
+              fileName: file.name,
+              sizeBytes: file.size,
+            );
           }
         },
         onCameraTap: () async {
@@ -655,7 +735,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             source: ImageSource.camera,
           );
           if (image != null) {
-            controller.sendAttachment(image.path, 'image', '');
+            await controller.sendAttachment(
+              path: image.path,
+              fileName: image.name,
+              sizeBytes: await image.length(),
+            );
           }
         },
         onGalleryTap: () async {
@@ -664,7 +748,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             source: ImageSource.gallery,
           );
           if (image != null) {
-            controller.sendAttachment(image.path, 'image', '');
+            await controller.sendAttachment(
+              path: image.path,
+              fileName: image.name,
+              sizeBytes: await image.length(),
+            );
           }
         },
         onAudioTap: () {},
@@ -674,13 +762,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
-  Widget _buildCallBubble(MessageRealm message, bool isMe, BuildContext context) {
+  Widget _buildCallBubble(
+    MessageRealm message,
+    bool isMe,
+    BuildContext context,
+  ) {
     final isVideo = message.content?.callType == 'video';
-    
+
     // Fallback logic for duration based on call status
     String displayDuration = message.content?.duration ?? '0 Sec';
     if (displayDuration == 'Unknown' || displayDuration.isEmpty) {
-       displayDuration = (message.content?.status == 'missed' || message.content?.status == 'rejected') ? '0 Sec' : 'Ongoing';
+      displayDuration =
+          (message.content?.status == 'missed' ||
+              message.content?.status == 'rejected')
+          ? '0 Sec'
+          : 'Ongoing';
     }
 
     return Row(
@@ -693,15 +789,23 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             color: Colors.transparent,
             shape: BoxShape.circle,
             border: Border.all(
-              color: message.content?.status == 'missed' ? Colors.redAccent : Colors.lightGreenAccent,
+              color: message.content?.status == 'missed'
+                  ? Colors.redAccent
+                  : Colors.lightGreenAccent,
               width: 1.5,
             ),
           ),
           child: Icon(
-            isVideo 
-                ? (message.content?.status == 'missed' ? Icons.videocam_off : Icons.videocam)
-                : (message.content?.status == 'missed' ? Icons.phone_missed : Icons.phone_in_talk),
-            color: message.content?.status == 'missed' ? Colors.redAccent : Colors.lightGreenAccent,
+            isVideo
+                ? (message.content?.status == 'missed'
+                      ? Icons.videocam_off
+                      : Icons.videocam)
+                : (message.content?.status == 'missed'
+                      ? Icons.phone_missed
+                      : Icons.phone_in_talk),
+            color: message.content?.status == 'missed'
+                ? Colors.redAccent
+                : Colors.lightGreenAccent,
             size: 20,
           ),
         ),
@@ -712,7 +816,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             Text(
               '${message.content?.status == 'missed' ? 'Missed' : 'Ended'} ${isVideo ? 'Video' : 'Voice'} Call',
               style: const TextStyle(
-                color: Colors.white, // Since bubble background is always dark cardColor
+                color: Colors
+                    .white, // Since bubble background is always dark cardColor
                 fontWeight: FontWeight.w600,
                 fontSize: 15,
               ),
@@ -722,10 +827,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               children: [
                 Text(
                   displayDuration,
-                  style: const TextStyle(
-                    color: Colors.grey,
-                    fontSize: 12,
-                  ),
+                  style: const TextStyle(color: Colors.grey, fontSize: 12),
                 ),
               ],
             ),
@@ -735,39 +837,56 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
-  Widget _buildAudioBubble(MessageRealm message, bool isMe, BuildContext context) {
+  Widget _buildAudioBubble(
+    MessageRealm message,
+    bool isMe,
+    BuildContext context,
+  ) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.play_circle_fill, color: isMe ? Colors.white : Get.theme.primaryColor, size: 40),
+        Icon(
+          Icons.play_circle_fill,
+          color: isMe ? Colors.white : Get.theme.primaryColor,
+          size: 40,
+        ),
         const SizedBox(width: 8),
         Container(
           width: 100,
           height: 30,
           decoration: BoxDecoration(
-            color: isMe ? Colors.white.withValues(alpha: 0.3) : Colors.grey.withValues(alpha: 0.2),
+            color: isMe
+                ? Colors.white.withValues(alpha: 0.3)
+                : Colors.grey.withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(15),
           ),
           // Waveform placeholder
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: List.generate(10, (index) => Container(
-              width: 3,
-              height: (index % 2 == 0) ? 10 : 20,
-              color: isMe ? Colors.white : Get.theme.primaryColor,
-            )),
+            children: List.generate(
+              10,
+              (index) => Container(
+                width: 3,
+                height: (index % 2 == 0) ? 10 : 20,
+                color: isMe ? Colors.white : Get.theme.primaryColor,
+              ),
+            ),
           ),
         ),
         const SizedBox(width: 8),
         Text(
           message.content?.duration ?? '0:00',
           style: TextStyle(color: isMe ? Colors.white : Colors.black),
-        )
+        ),
       ],
     );
   }
 
-  Widget _buildLocationBubble(MessageRealm message, bool isMe, BuildContext context) {
+  Widget _buildLocationBubble(
+    MessageRealm message,
+    bool isMe,
+    BuildContext context,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -785,13 +904,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         const SizedBox(height: 8),
         Text(
           'Location',
-          style: TextStyle(color: isMe ? Colors.white : Colors.black, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: isMe ? Colors.white : Colors.black,
+            fontWeight: FontWeight.bold,
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildContactBubble(MessageRealm message, bool isMe, BuildContext context) {
+  Widget _buildContactBubble(
+    MessageRealm message,
+    bool isMe,
+    BuildContext context,
+  ) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -805,12 +931,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           children: [
             Text(
               message.content?.content ?? 'Contact',
-              style: TextStyle(color: isMe ? Colors.white : Colors.black, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                color: isMe ? Colors.white : Colors.black,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 4),
             Text(
               'Tap to view',
-              style: TextStyle(color: isMe ? Colors.white70 : Colors.grey, fontSize: 12),
+              style: TextStyle(
+                color: isMe ? Colors.white70 : Colors.grey,
+                fontSize: 12,
+              ),
             ),
           ],
         ),
@@ -818,17 +950,26 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
-  Widget _buildDocumentBubble(MessageRealm message, bool isMe, BuildContext context) {
+  Widget _buildDocumentBubble(
+    MessageRealm message,
+    bool isMe,
+    BuildContext context,
+  ) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: isMe ? Colors.white.withValues(alpha: 0.2) : Get.theme.primaryColor.withValues(alpha: 0.1),
+            color: isMe
+                ? Colors.white.withValues(alpha: 0.2)
+                : Get.theme.primaryColor.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Icon(Icons.insert_drive_file, color: isMe ? Colors.white : Get.theme.primaryColor),
+          child: Icon(
+            Icons.insert_drive_file,
+            color: isMe ? Colors.white : Get.theme.primaryColor,
+          ),
         ),
         const SizedBox(width: 12),
         Flexible(
@@ -837,14 +978,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             children: [
               Text(
                 message.content?.content ?? 'Document',
-                style: TextStyle(color: isMe ? Colors.white : Colors.black, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: isMe ? Colors.white : Colors.black,
+                  fontWeight: FontWeight.bold,
+                ),
                 overflow: TextOverflow.ellipsis,
                 maxLines: 1,
               ),
               const SizedBox(height: 4),
               Text(
                 message.content?.size ?? '',
-                style: TextStyle(color: isMe ? Colors.white70 : Colors.grey, fontSize: 12),
+                style: TextStyle(
+                  color: isMe ? Colors.white70 : Colors.grey,
+                  fontSize: 12,
+                ),
               ),
             ],
           ),

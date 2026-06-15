@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:chat_app/core/network/api_service.dart';
+import 'package:dio/dio.dart' as dio;
 import 'package:get/get.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -18,6 +20,10 @@ class ChatRepository {
   final SocketService _socketService = Get.find<SocketService>();
   final _uuid = const Uuid();
 
+  String _formatFileSize(int sizeBytes) {
+    return '${(sizeBytes / (1024 * 1024)).toStringAsFixed(2)} MB';
+  }
+
   Future<List<UserRealm>> getChatList({bool fetchFromNetwork = true}) async {
     // 1. Instantly return local cached chats
     final localChats = _realmHelper.getUsers();
@@ -29,7 +35,7 @@ class ChatRepository {
         if (response.statusCode == 200) {
           final usersData = response.data['users'] as List;
           final List<MessageRealm> allMessagesToSave = [];
-          
+
           final fetchedUsers = usersData.map((data) {
             if (data['messages'] != null && data['messages'] is List) {
               final msgs = (data['messages'] as List).map((msgData) {
@@ -49,7 +55,8 @@ class ChatRepository {
                 );
 
                 List<MessageReactionRealm> parsedReactions = [];
-                if (msgData['reactions'] != null && msgData['reactions'] is List) {
+                if (msgData['reactions'] != null &&
+                    msgData['reactions'] is List) {
                   parsedReactions = (msgData['reactions'] as List).map((r) {
                     return MessageReactionRealm(
                       r['emoji']?.toString() ?? '',
@@ -64,8 +71,10 @@ class ChatRepository {
                   msgData['receiver']?.toString() ?? '',
                   msgData['status']?.toString() ?? 'sent',
                   msgData['edited'] == true,
-                  DateTime.tryParse(msgData['createdAt']?.toString() ?? '') ?? DateTime.now(),
-                  DateTime.tryParse(msgData['updatedAt']?.toString() ?? '') ?? DateTime.now(),
+                  DateTime.tryParse(msgData['createdAt']?.toString() ?? '') ??
+                      DateTime.now(),
+                  DateTime.tryParse(msgData['updatedAt']?.toString() ?? '') ??
+                      DateTime.now(),
                   false,
                   content: contentRealm,
                   reactions: parsedReactions,
@@ -83,7 +92,9 @@ class ChatRepository {
               bio: data['bio']?.toString(),
               isOnline: data['isOnline'] == true,
               isGroup: data['isGroup'] == true,
-              membersListJson: data['members'] != null ? jsonEncode(data['members']) : null,
+              membersListJson: data['members'] != null
+                  ? jsonEncode(data['members'])
+                  : null,
             );
           }).toList();
 
@@ -113,7 +124,8 @@ class ChatRepository {
               final callsData = callsResponse.data['users'] as List;
               final fetchedCallUsers = callsData.map((data) {
                 // Return UserRealm, and also save their latest call message
-                if (data['messages'] != null && (data['messages'] as List).isNotEmpty) {
+                if (data['messages'] != null &&
+                    (data['messages'] as List).isNotEmpty) {
                   for (var msgData in (data['messages'] as List)) {
                     saveIncomingMessage(msgData);
                   }
@@ -134,17 +146,26 @@ class ChatRepository {
           // Deduplicate fetchedUsers by ID before saving
           final uniqueUsers = <String, UserRealm>{};
           for (var user in fetchedUsers) {
-             // Let the one with more fields take precedence
-             if (!uniqueUsers.containsKey(user.id) || (user.isGroup == true)) {
-                uniqueUsers[user.id] = user;
-             } else {
-                if (user.photo != null) uniqueUsers[user.id]!.photo = user.photo;
-                if (user.userName != null) uniqueUsers[user.id]!.userName = user.userName;
-             }
+            // Let the one with more fields take precedence
+            if (!uniqueUsers.containsKey(user.id) || (user.isGroup == true)) {
+              uniqueUsers[user.id] = user;
+            } else {
+              if (user.photo != null) uniqueUsers[user.id]!.photo = user.photo;
+              if (user.userName != null) {
+                uniqueUsers[user.id]!.userName = user.userName;
+              }
+              if (user.email != null) uniqueUsers[user.id]!.email = user.email;
+              if (user.mobileNumber != null) {
+                uniqueUsers[user.id]!.mobileNumber = user.mobileNumber;
+              }
+              if (user.bio != null) uniqueUsers[user.id]!.bio = user.bio;
+            }
           }
 
           Get.log('Total unique users: \${uniqueUsers.length}');
-          Get.log('Total groups: \${uniqueUsers.values.where((u) => u.isGroup == true).length}');
+          Get.log(
+            'Total groups: \${uniqueUsers.values.where((u) => u.isGroup == true).length}',
+          );
 
           _realmHelper.saveUsers(uniqueUsers.values.toList());
           if (allMessagesToSave.isNotEmpty) {
@@ -165,21 +186,30 @@ class ChatRepository {
     // since the backend doesn't currently expose a dedicated /search endpoint.
     final users = await getUserList();
     if (query.isEmpty) return users;
-    
+
     final lowerQuery = query.toLowerCase();
-    return users.where((u) => 
-      (u.userName ?? '').toLowerCase().contains(lowerQuery) ||
-      (u.email ?? '').toLowerCase().contains(lowerQuery) ||
-      (u.mobileNumber ?? '').contains(lowerQuery)
-    ).toList();
+    return users
+        .where(
+          (u) =>
+              (u.userName ?? '').toLowerCase().contains(lowerQuery) ||
+              (u.email ?? '').toLowerCase().contains(lowerQuery) ||
+              (u.mobileNumber ?? '').contains(lowerQuery),
+        )
+        .toList();
   }
 
-  Future<List<MessageRealm>> getMessages(String userId, {bool fetchFromNetwork = true}) async {
+  Future<List<MessageRealm>> getMessages(
+    String userId, {
+    bool fetchFromNetwork = true,
+  }) async {
     final localMessages = _realmHelper.getMessagesForUser(userId);
 
     if (fetchFromNetwork && _connectivity.isOnline.value) {
       try {
-        final response = await _apiService.dio.post('/allMessages', data: {'selectedId': userId});
+        final response = await _apiService.dio.post(
+          '/allMessages',
+          data: {'selectedId': userId},
+        );
         if (response.statusCode == 200) {
           final messagesData = response.data['messages'] as List;
           final fetchedMessages = messagesData.map((data) {
@@ -203,7 +233,9 @@ class ChatRepository {
               parsedReactions = (data['reactions'] as List).map((r) {
                 return MessageReactionRealm(
                   r['emoji']?.toString() ?? '',
-                  jsonEncode([r['userId']?.toString() ?? '']), // Backend sends userId for each reaction
+                  jsonEncode([
+                    r['userId']?.toString() ?? '',
+                  ]), // Backend sends userId for each reaction
                 );
               }).toList();
             }
@@ -214,8 +246,10 @@ class ChatRepository {
               data['receiver']?.toString() ?? '',
               data['status']?.toString() ?? 'sent',
               data['edited'] == true,
-              DateTime.tryParse(data['createdAt']?.toString() ?? '') ?? DateTime.now(),
-              DateTime.tryParse(data['updatedAt']?.toString() ?? '') ?? DateTime.now(),
+              DateTime.tryParse(data['createdAt']?.toString() ?? '') ??
+                  DateTime.now(),
+              DateTime.tryParse(data['updatedAt']?.toString() ?? '') ??
+                  DateTime.now(),
               false,
               content: contentRealm,
               reactions: parsedReactions,
@@ -279,20 +313,67 @@ class ChatRepository {
     }
   }
 
-  Future<void> sendMessage(String receiverId, String content, String type) async {
+  Future<Map<String, String>> uploadAttachment({
+    required String path,
+    required String fileName,
+    required int sizeBytes,
+  }) async {
+    if (!_connectivity.isOnline.value) {
+      throw Exception('Attachment upload requires an internet connection.');
+    }
+
+    final file = File(path);
+    if (!await file.exists()) {
+      throw Exception('Selected file could not be found.');
+    }
+
+    final formData = dio.FormData.fromMap({
+      'file': await dio.MultipartFile.fromFile(path, filename: fileName),
+    });
+
+    final response = await _apiService.dio.post('/upload', data: formData);
+    if (response.statusCode != 200 ||
+        response.data == null ||
+        response.data['fileUrl'] == null) {
+      throw Exception('Upload failed.');
+    }
+
+    return {
+      'content': fileName,
+      'fileUrl': response.data['fileUrl'].toString(),
+      'fileType':
+          response.data['fileType']?.toString() ?? 'application/octet-stream',
+      'size': _formatFileSize(sizeBytes),
+    };
+  }
+
+  Future<void> sendMessage(
+    String receiverId,
+    String content,
+    String type, {
+    String? fileUrl,
+    String? fileType,
+    String? size,
+  }) async {
     final tempId = _uuid.v4();
     final now = DateTime.now();
 
     final userId = Get.find<StorageService>().getUserId() ?? 'myUserId';
-    
+
     // Encrypt the content if it's text
     String finalContent = content;
     if (type == 'text') {
       finalContent = EncryptionUtil.encrypt(content);
     }
-    
+
     // Save locally first
-    final contentRealm = MessageContentRealm(type, content: finalContent);
+    final contentRealm = MessageContentRealm(
+      type,
+      content: finalContent,
+      fileUrl: fileUrl,
+      fileType: fileType,
+      size: size,
+    );
     final localMessage = MessageRealm(
       tempId,
       userId,
@@ -308,7 +389,15 @@ class ChatRepository {
 
     if (_connectivity.isOnline.value) {
       // Send directly
-      await sendRealtimeMessage(receiverId, finalContent, type, tempId);
+      await sendRealtimeMessage(
+        receiverId,
+        finalContent,
+        type,
+        tempId,
+        fileUrl: fileUrl,
+        fileType: fileType,
+        size: size,
+      );
     } else {
       // Add to offline queue
       final queuedMsg = OfflineQueueRealm(
@@ -322,7 +411,15 @@ class ChatRepository {
     }
   }
 
-  Future<void> sendRealtimeMessage(String receiverId, String content, String type, String tempId) async {
+  Future<void> sendRealtimeMessage(
+    String receiverId,
+    String content,
+    String type,
+    String tempId, {
+    String? fileUrl,
+    String? fileType,
+    String? size,
+  }) async {
     // Logic to send message through socket
     Get.log('Sending message to $receiverId');
     final userId = Get.find<StorageService>().getUserId() ?? 'myUserId';
@@ -332,6 +429,9 @@ class ChatRepository {
       'content': {
         'type': type,
         'content': content,
+        'fileUrl': ?fileUrl,
+        'fileType': ?fileType,
+        'size': ?size,
       },
       'replyTo': null,
       'isBlocked': false,
@@ -347,7 +447,12 @@ class ChatRepository {
     _realmHelper.updateMessageContent(messageId, newContent);
   }
 
-  void handleMessageReactionLocally(String messageId, String userId, String emoji, String action) {
+  void handleMessageReactionLocally(
+    String messageId,
+    String userId,
+    String emoji,
+    String action,
+  ) {
     _realmHelper.handleMessageReactionLocally(messageId, userId, emoji, action);
   }
 
@@ -362,32 +467,33 @@ class ChatRepository {
     }
   }
 
-  Future<void> editMessage(String messageId, String newContent, String type) async {
+  Future<void> editMessage(
+    String messageId,
+    String newContent,
+    String type,
+  ) async {
     String finalContent = newContent;
     if (type == 'text') {
       finalContent = EncryptionUtil.encrypt(newContent);
     }
-    
+
     _realmHelper.updateMessageContent(messageId, finalContent);
 
     if (_connectivity.isOnline.value) {
       try {
-        await _apiService.dio.put('/updateMessage/$messageId', data: {
-          'content': {
-            'type': type,
-            'content': finalContent,
-          }
-        });
+        await _apiService.dio.put(
+          '/updateMessage/$messageId',
+          data: {
+            'content': {'type': type, 'content': finalContent},
+          },
+        );
       } catch (e) {
         Get.log('Error updating message on server: $e', isError: true);
       }
 
       _socketService.emitUpdateMessage({
         'messageId': messageId,
-        'content': {
-          'type': type,
-          'content': finalContent,
-        }
+        'content': {'type': type, 'content': finalContent},
       });
     }
   }
@@ -402,7 +508,7 @@ class ChatRepository {
       });
     }
   }
-  
+
   Future<void> removeReaction(String messageId) async {
     if (_connectivity.isOnline.value) {
       final userId = Get.find<StorageService>().getUserId();
@@ -426,7 +532,9 @@ class ChatRepository {
           final fetchedUsers = usersData.map((data) {
             // Filter out local Android content:// URIs that won't load over network
             final rawPhoto = data['photo'] as String?;
-            final photo = (rawPhoto != null && rawPhoto.startsWith('http')) ? rawPhoto : null;
+            final photo = (rawPhoto != null && rawPhoto.startsWith('http'))
+                ? rawPhoto
+                : null;
             return UserRealm(
               data['_id'] ?? '',
               userName: data['userName'],
@@ -456,12 +564,16 @@ class ChatRepository {
       return _realmHelper.getLocalContacts();
     }
 
-    final deviceContacts = await FlutterContacts.getAll(properties: {ContactProperty.phone});
+    final deviceContacts = await FlutterContacts.getAll(
+      properties: {ContactProperty.phone},
+    );
     final cachedContacts = _realmHelper.getLocalContacts();
-    
+
     // Create map for easy comparison
-    final cachedMap = {for (var c in cachedContacts) c.phoneNumber: c.displayName};
-    
+    final cachedMap = {
+      for (var c in cachedContacts) c.phoneNumber: c.displayName,
+    };
+
     bool hasChanges = false;
     List<LocalContactRealm> newLocalContacts = [];
     List<Map<String, dynamic>> apiContactsPayload = [];
@@ -469,11 +581,16 @@ class ChatRepository {
     for (var dc in deviceContacts) {
       if (dc.phones.isNotEmpty) {
         final rawPhone = dc.phones.first.number;
-        final formattedPhone = rawPhone.replaceAll(RegExp(r'\s+|-|\(|\)'), ''); // Basic normalization
+        final formattedPhone = rawPhone.replaceAll(
+          RegExp(r'\s+|-|\(|\)'),
+          '',
+        ); // Basic normalization
         final displayName = dc.displayName;
-        
-        newLocalContacts.add(LocalContactRealm(dc.id ?? '', displayName ?? '', formattedPhone));
-        
+
+        newLocalContacts.add(
+          LocalContactRealm(dc.id ?? '', displayName ?? '', formattedPhone),
+        );
+
         apiContactsPayload.add({
           "id": dc.id,
           "name": displayName,
@@ -494,14 +611,15 @@ class ChatRepository {
       Get.log('Contacts changed. Syncing with backend...');
       _realmHelper.clearLocalContacts();
       _realmHelper.saveLocalContacts(newLocalContacts);
-      
+
       if (_connectivity.isOnline.value) {
         try {
-          await _apiService.dio.post('/addContactList', data: [
-            {
-              "contacts": apiContactsPayload
-            }
-          ]);
+          await _apiService.dio.post(
+            '/addContactList',
+            data: [
+              {"contacts": apiContactsPayload},
+            ],
+          );
           Get.log('Contacts synced successfully');
         } catch (e) {
           Get.log('Error syncing contacts to API: $e', isError: true);

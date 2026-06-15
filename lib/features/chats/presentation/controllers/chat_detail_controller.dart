@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:chat_app/core/database/realm_helper.dart';
 import 'package:chat_app/services/sync_service.dart';
 import 'package:chat_app/services/storage_service.dart';
@@ -12,22 +13,22 @@ import '../../../../utils/encryption_util.dart';
 class ChatDetailController extends GetxController {
   final ChatRepository _chatRepository = Get.find<ChatRepository>();
   final SocketService _socketService = Get.find<SocketService>();
-  
+
   final UserRealm remoteUser;
-  
+
   final RxList<MessageRealm> messages = <MessageRealm>[].obs;
   final RxBool isLoading = true.obs;
   final RxBool isTyping = false.obs;
   final RxBool isRemoteTyping = false.obs;
   final RxBool isSyncing = false.obs;
-  
+
   final RxnString editingMessageId = RxnString(null);
   final RxBool hasText = false.obs;
   late RxBool isUserOnline;
 
   final TextEditingController textController = TextEditingController();
   final ScrollController scrollController = ScrollController();
-  
+
   Timer? _typingTimer;
   Timer? _remoteTypingTimer;
   DateTime? _lastTypingEmit;
@@ -43,21 +44,21 @@ class ChatDetailController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    
+
     isUserOnline = (remoteUser.isOnline ?? false).obs;
-    
+
     // Force socket connection if it hasn't connected
     _socketService.connect();
-    
+
     // Fetch initial online status
     Future.delayed(const Duration(milliseconds: 500), () {
       _socketService.getOnlineUsers();
     });
-    
+
     _loadMessages();
-    
+
     textController.addListener(_onTextChanged);
-    
+
     ever(Get.find<SyncService>().typingUsers, (Map<String, bool> typingMap) {
       if (typingMap[remoteUser.id] == true) {
         isRemoteTyping.value = true;
@@ -79,22 +80,19 @@ class ChatDetailController extends GetxController {
         isUserOnline.value = false;
       }
     };
-
-
   }
 
   void reloadMessagesLocally() {
     _loadMessages(fetchFromNetwork: false);
   }
 
-
-
   void _onTextChanged() {
     hasText.value = textController.text.trim().isNotEmpty;
     if (textController.text.isNotEmpty) {
       final now = DateTime.now();
       // Throttle emitting typing status to once every 2 seconds
-      if (_lastTypingEmit == null || now.difference(_lastTypingEmit!) > const Duration(seconds: 2)) {
+      if (_lastTypingEmit == null ||
+          now.difference(_lastTypingEmit!) > const Duration(seconds: 2)) {
         isTyping.value = true;
         _socketService.emitTypingStatus(remoteUser.id, true);
         _lastTypingEmit = now;
@@ -118,32 +116,40 @@ class ChatDetailController extends GetxController {
     if (messages.isEmpty) {
       isLoading.value = true;
     }
-    final localMsgs = await _chatRepository.getMessages(remoteUser.id, fetchFromNetwork: false);
+    final localMsgs = await _chatRepository.getMessages(
+      remoteUser.id,
+      fetchFromNetwork: false,
+    );
     messages.assignAll(_filterDuplicates(localMsgs.reversed.toList()));
     isLoading.value = false;
-    
+
     // 2. Sync in background if requested
     if (fetchFromNetwork) {
       isSyncing.value = true;
-      final syncedMsgs = await _chatRepository.getMessages(remoteUser.id, fetchFromNetwork: true);
+      final syncedMsgs = await _chatRepository.getMessages(
+        remoteUser.id,
+        fetchFromNetwork: true,
+      );
       messages.assignAll(_filterDuplicates(syncedMsgs.reversed.toList()));
       isSyncing.value = false;
     }
-    
+
     // Emit read status for any unread messages from the remote user
     final myId = Get.find<StorageService>().getUserId();
     for (var msg in messages) {
       bool isUnread = false;
       if (remoteUser.isGroup == true) {
-        if (msg.receiverId == remoteUser.id && msg.senderId != myId && msg.status != 'read') {
-           isUnread = true;
+        if (msg.receiverId == remoteUser.id &&
+            msg.senderId != myId &&
+            msg.status != 'read') {
+          isUnread = true;
         }
       } else {
         if (msg.senderId == remoteUser.id && msg.status != 'read') {
-           isUnread = true;
+          isUnread = true;
         }
       }
-      
+
       if (isUnread) {
         _socketService.emitMessageRead(msg.id);
         _chatRepository.updateMessageStatusLocally(msg.id, 'read');
@@ -156,9 +162,10 @@ class ChatDetailController extends GetxController {
     final seen = <String>{};
     for (var msg in rawMsgs) {
       // Use content and second-level timestamp as a unique composite key for the UI
-      final timeKey = "${msg.createdAt.year}-${msg.createdAt.month}-${msg.createdAt.day}_${msg.createdAt.hour}:${msg.createdAt.minute}:${msg.createdAt.second}";
+      final timeKey =
+          "${msg.createdAt.year}-${msg.createdAt.month}-${msg.createdAt.day}_${msg.createdAt.hour}:${msg.createdAt.minute}:${msg.createdAt.second}";
       final key = "${msg.content?.content}_$timeKey";
-      
+
       if (!seen.contains(key)) {
         seen.add(key);
         uniqueMsgs.add(msg);
@@ -192,7 +199,7 @@ class ChatDetailController extends GetxController {
   Future<void> sendMessage() async {
     final text = textController.text.trim();
     if (text.isEmpty) return;
-    
+
     final currentEditId = editingMessageId.value;
     textController.clear();
     editingMessageId.value = null;
@@ -204,12 +211,48 @@ class ChatDetailController extends GetxController {
     } else {
       await _chatRepository.sendMessage(remoteUser.id, text, 'text');
     }
-    
+
     await _loadMessages(fetchFromNetwork: false); // Reload from local db only
   }
 
-  Future<void> sendAttachment(String fileUrl, String fileType, String size) async {
-    // This will handle the actual attachment sending once uploaded
+  Future<void> sendAttachment({
+    required String path,
+    required String fileName,
+    required int sizeBytes,
+  }) async {
+    if (path.trim().isEmpty || !await File(path).exists()) {
+      Get.snackbar('Attachment failed', 'Selected file could not be found.');
+      return;
+    }
+
+    editingMessageId.value = null;
+    isTyping.value = false;
+    _socketService.emitTypingStatus(remoteUser.id, false);
+
+    try {
+      isSyncing.value = true;
+      final uploadedFile = await _chatRepository.uploadAttachment(
+        path: path,
+        fileName: fileName,
+        sizeBytes: sizeBytes,
+      );
+
+      await _chatRepository.sendMessage(
+        remoteUser.id,
+        uploadedFile['content']!,
+        'file',
+        fileUrl: uploadedFile['fileUrl'],
+        fileType: uploadedFile['fileType'],
+        size: uploadedFile['size'],
+      );
+
+      await _loadMessages(fetchFromNetwork: false);
+    } catch (e) {
+      Get.log('Attachment send failed: $e', isError: true);
+      Get.snackbar('Attachment failed', 'Could not upload or send this file.');
+    } finally {
+      isSyncing.value = false;
+    }
   }
 
   @override
