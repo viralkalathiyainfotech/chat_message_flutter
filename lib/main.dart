@@ -6,9 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'core/routes/app_pages.dart';
 import 'core/routes/app_routes.dart';
+import 'features/calls/presentation/widgets/call_overlay_host.dart';
 import 'services/storage_service.dart';
 import 'services/connectivity_service.dart';
 import 'services/call_service.dart';
+import 'services/call_notification_service.dart';
+import 'services/call_overlay_service.dart';
+import 'services/call_pip_service.dart';
 import 'features/calls/presentation/controllers/call_controller.dart';
 import 'services/sync_service.dart';
 import 'services/socket_service.dart';
@@ -16,21 +20,24 @@ import 'core/database/realm_helper.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // Initialize Services
   await Get.putAsync(() => StorageService().init());
   await Get.putAsync(() => ApiService().init());
-  
+
   // Initialize Database
   RealmHelper().init();
-  
+
   // Initialize Network & Sync
   Get.put(ConnectivityService());
   Get.put(SocketService());
   Get.put(CallService());
+  Get.put(CallOverlayService());
+  Get.put(CallPipService());
+  Get.put(CallNotificationService());
   Get.put(CallController());
   Get.put(SyncService());
-  
+
   // Initialize ThemeController
   Get.put(ThemeController());
 
@@ -43,7 +50,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final themeController = Get.find<ThemeController>();
-    
+
     return GetMaterialApp(
       title: StringConstants.appName,
       theme: AppTheme.lightTheme,
@@ -52,7 +59,11 @@ class MyApp extends StatelessWidget {
       initialRoute: AppRoutes.splash,
       getPages: AppPages.pages,
       debugShowCheckedModeBanner: false,
-      defaultTransition: Transition.rightToLeftWithFade, // Smooth page transitions
+      builder: (context, child) {
+        return CallOverlayHost(child: child ?? const SizedBox.shrink());
+      },
+      defaultTransition:
+          Transition.rightToLeftWithFade, // Smooth page transitions
 
       transitionDuration: const Duration(milliseconds: 300),
     );

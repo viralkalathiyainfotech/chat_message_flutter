@@ -1,82 +1,40 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'package:floating/floating.dart';
 import '../controllers/call_controller.dart';
 
-class CallScreen extends GetView<CallController> {
+class CallScreen extends StatefulWidget {
   const CallScreen({super.key});
 
   @override
+  State<CallScreen> createState() => _CallScreenState();
+}
+
+class _CallScreenState extends State<CallScreen> {
+  final CallController controller = Get.find<CallController>();
+
+  @override
+  void initState() {
+    super.initState();
+    controller.isFullCallScreenVisible.value = true;
+  }
+
+  @override
+  void dispose() {
+    controller.isFullCallScreenVisible.value = false;
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return PiPSwitcher(
-      childWhenDisabled: _buildFullCallScreen(context),
-      childWhenEnabled: _buildPiPCallScreen(),
-    );
-  }
-
-  Widget _buildPiPCallScreen() {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          // Remote Video
-          Positioned.fill(
-            child: Obx(() {
-              final renderers = controller.callService.remoteRenderers.values.toList();
-              if (renderers.isNotEmpty && controller.callService.isVideoCall) {
-                return RTCVideoView(
-                  renderers[0],
-                  objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                );
-              }
-              return const Center(child: Icon(Icons.call, color: Colors.green, size: 40));
-            }),
-          ),
-          // Local Video (Tiny)
-          Positioned(
-            left: 5,
-            bottom: 5,
-            width: 40,
-            height: 60,
-            child: Obx(() {
-              final hasLocal = controller.callService.hasLocalStream.value;
-              return hasLocal && controller.callService.isVideoEnabled.value
-                  ? Container(
-                      decoration: BoxDecoration(
-                        color: Colors.grey[900],
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: Colors.white24, width: 1),
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(5),
-                        child: RTCVideoView(
-                          controller.callService.localRenderer.value,
-                          mirror: true,
-                          objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                        ),
-                      ),
-                    )
-                  : const SizedBox.shrink();
-            }),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFullCallScreen(BuildContext context) {
     return PopScope(
-      canPop: false, // Prevent back button during call
+      canPop: true,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) {
-          if (controller.callService.isInCall.value) {
-            controller.showInAppOverlay();
-            Get.back();
-          } else {
-            controller.callService.endCall();
-            Get.back();
-          }
+        if (didPop &&
+            (controller.isMinimizingToOverlay.value ||
+                controller.callService.isInCall.value ||
+                controller.callService.isCalling.value)) {
+          controller.showOverlayAfterCallScreenClosed();
         }
       },
       child: Scaffold(
@@ -87,7 +45,11 @@ class CallScreen extends GetView<CallController> {
               // Remote Video (Full Screen or Grid)
               Positioned.fill(
                 child: Obx(() {
-                  final renderers = controller.callService.remoteRenderers.values.toList();
+                  final renderers = controller
+                      .callService
+                      .remoteRenderers
+                      .values
+                      .toList();
                   if (renderers.isEmpty) {
                     return const Center(
                       child: Column(
@@ -103,33 +65,35 @@ class CallScreen extends GetView<CallController> {
                       ),
                     );
                   }
-                  
+
                   // If 1 remote, fullscreen. If more, grid.
                   if (renderers.length == 1) {
-                     return RTCVideoView(
-                        renderers[0],
-                        objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                      );
+                    return RTCVideoView(
+                      renderers[0],
+                      objectFit:
+                          RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                    );
                   } else {
-                     return GridView.builder(
-                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                         crossAxisCount: renderers.length > 2 ? 2 : 1,
-                         childAspectRatio: renderers.length > 2 ? 1.0 : 0.8,
-                       ),
-                       itemCount: renderers.length,
-                       itemBuilder: (context, index) {
-                         return Container(
-                           margin: const EdgeInsets.all(2.0),
-                           decoration: BoxDecoration(
-                             border: Border.all(color: Colors.white24, width: 2),
-                           ),
-                           child: RTCVideoView(
-                             renderers[index],
-                             objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                           ),
-                         );
-                       },
-                     );
+                    return GridView.builder(
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: renderers.length > 2 ? 2 : 1,
+                        childAspectRatio: renderers.length > 2 ? 1.0 : 0.8,
+                      ),
+                      itemCount: renderers.length,
+                      itemBuilder: (context, index) {
+                        return Container(
+                          margin: const EdgeInsets.all(2.0),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.white24, width: 2),
+                          ),
+                          child: RTCVideoView(
+                            renderers[index],
+                            objectFit: RTCVideoViewObjectFit
+                                .RTCVideoViewObjectFitCover,
+                          ),
+                        );
+                      },
+                    );
                   }
                 }),
               ),
@@ -154,7 +118,8 @@ class CallScreen extends GetView<CallController> {
                             child: RTCVideoView(
                               controller.callService.localRenderer.value,
                               mirror: true,
-                              objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                              objectFit: RTCVideoViewObjectFit
+                                  .RTCVideoViewObjectFitCover,
                             ),
                           ),
                         )
@@ -170,39 +135,65 @@ class CallScreen extends GetView<CallController> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 32),
-                      onPressed: () {
-                        if (controller.callService.isInCall.value) {
-                           controller.showInAppOverlay();
-                           Get.back();
-                        } else {
-                           controller.callService.endCall();
-                           Get.back();
-                        }
-                      },
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(
+                            Icons.keyboard_arrow_down,
+                            color: Colors.white,
+                          ),
+                          onPressed: controller.hideFullCallScreenForOverlay,
+                        ),
+                        Obx(
+                          () =>
+                              controller.callService.isVideoCall &&
+                                  controller.callService.isInCall.value
+                              ? IconButton(
+                                  icon: const Icon(
+                                    Icons.picture_in_picture_alt,
+                                    color: Colors.white,
+                                  ),
+                                  onPressed: controller.enterPip,
+                                )
+                              : const SizedBox(width: 48),
+                        ),
+                      ],
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.black54,
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Obx(() {
                         return Text(
-                          controller.callService.isCalling.value ? 'Calling...' : controller.callDuration.value,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                          controller.callService.isCalling.value
+                              ? 'Calling...'
+                              : controller.callDuration.value,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
                         );
                       }),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.flip_camera_ios, color: Colors.white),
+                      icon: const Icon(
+                        Icons.flip_camera_ios,
+                        color: Colors.white,
+                      ),
                       onPressed: () {
                         // Implement switch camera
                         if (controller.callService.localStream != null) {
                           // Note: Helper might not be defined, use MediaStreamTrack methods
                           try {
-                            final videoTracks = controller.callService.localStream!.getVideoTracks();
+                            final videoTracks = controller
+                                .callService
+                                .localStream!
+                                .getVideoTracks();
                             if (videoTracks.isNotEmpty) {
                               Helper.switchCamera(videoTracks[0]);
                             }
@@ -225,13 +216,20 @@ class CallScreen extends GetView<CallController> {
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     // Mute Audio
-                    Obx(() => _buildControlButton(
-                          icon: controller.callService.isAudioEnabled.value
-                              ? Icons.mic
-                              : Icons.mic_off,
-                          isActive: !controller.callService.isAudioEnabled.value,
-                          onPressed: controller.callService.toggleAudio,
-                        )),
+                    Obx(
+                      () => _buildControlButton(
+                        icon: controller.callService.isAudioEnabled.value
+                            ? Icons.mic
+                            : Icons.mic_off,
+                        isActive: !controller.callService.isAudioEnabled.value,
+                        onPressed: controller.callService.toggleAudio,
+                      ),
+                    ),
+                    _buildControlButton(
+                      icon: Icons.chat_bubble_outline,
+                      isActive: false,
+                      onPressed: controller.hideFullCallScreenForOverlay,
+                    ),
                     // End Call
                     FloatingActionButton(
                       heroTag: 'end_call_btn',
@@ -240,22 +238,30 @@ class CallScreen extends GetView<CallController> {
                         controller.callService.endCall();
                         Get.back();
                       },
-                      child: const Icon(Icons.call_end, color: Colors.white, size: 30),
+                      child: const Icon(
+                        Icons.call_end,
+                        color: Colors.white,
+                        size: 30,
+                      ),
                     ),
                     // Toggle Video
-                    Obx(() => _buildControlButton(
-                          icon: controller.callService.isVideoEnabled.value
-                              ? Icons.videocam
-                              : Icons.videocam_off,
-                          isActive: !controller.callService.isVideoEnabled.value,
-                          onPressed: controller.callService.toggleVideo,
-                        )),
+                    Obx(
+                      () => _buildControlButton(
+                        icon: controller.callService.isVideoEnabled.value
+                            ? Icons.videocam
+                            : Icons.videocam_off,
+                        isActive: !controller.callService.isVideoEnabled.value,
+                        onPressed: controller.callService.toggleVideo,
+                      ),
+                    ),
                     // Screen Share
-                    Obx(() => _buildControlButton(
-                          icon: Icons.screen_share,
-                          isActive: controller.callService.isScreenSharing.value,
-                          onPressed: controller.callService.toggleScreenShare,
-                        )),
+                    Obx(
+                      () => _buildControlButton(
+                        icon: Icons.screen_share,
+                        isActive: controller.callService.isScreenSharing.value,
+                        onPressed: controller.callService.toggleScreenShare,
+                      ),
+                    ),
                   ],
                 ),
               ),

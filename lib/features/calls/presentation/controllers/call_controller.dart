@@ -1,15 +1,22 @@
-import 'package:floating/floating.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../../../../services/call_service.dart';
+import '../../../../services/call_notification_service.dart';
+import '../../../../services/call_overlay_service.dart';
+import '../../../../services/call_pip_service.dart';
 import '../views/call_screen.dart';
 import 'dart:async';
 
 class CallController extends GetxController {
   final CallService callService = Get.find<CallService>();
+  final CallOverlayService _overlayService = Get.find<CallOverlayService>();
+  final CallPipService _pipService = Get.find<CallPipService>();
+  final CallNotificationService _notificationService =
+      Get.find<CallNotificationService>();
 
   final RxString callDuration = '00:00'.obs;
+  final RxBool isFullCallScreenVisible = false.obs;
+  final RxBool isMinimizingToOverlay = false.obs;
   Timer? _callTimer;
   int _seconds = 0;
 
@@ -35,8 +42,6 @@ class CallController extends GetxController {
     super.onClose();
   }
 
-  final floating = Floating();
-
   @override
   void onInit() {
     super.onInit();
@@ -60,148 +65,88 @@ class CallController extends GetxController {
     ever(callService.isInCall, (bool isInCall) {
       if (isInCall) {
         _startTimer();
-        if (callService.isVideoCall) {
-          floating.enable(OnLeavePiP(aspectRatio: Rational.vertical()));
-        }
-        Get.to(() => const CallScreen());
+        _pipService.setCallActive(callService.isVideoCall);
+        _showOrUpdateNotification();
+        openCallScreen();
       } else {
         _stopTimer();
-        hideInAppOverlay();
-        floating.cancelOnLeavePiP();
+        _overlayService.hideOverlay();
+        _notificationService.stopOngoingCall();
+        _pipService.setCallActive(false);
         // If we are on the call screen, go back
-        if (Get.currentRoute == '/CallScreen' || Get.isOverlaysOpen) {
+        if (isFullCallScreenVisible.value ||
+            Get.currentRoute == '/CallScreen') {
+          isFullCallScreenVisible.value = false;
           Get.back();
         }
       }
     });
   }
 
-  OverlayEntry? _overlayEntry;
-
-  void showInAppOverlay() {
-    if (!callService.isVideoCall) {
-       Get.snackbar("Audio Call", "Overlay disabled for audio calls.");
-       return;
-    }
-    if (_overlayEntry != null) return;
-    
-    _overlayEntry = OverlayEntry(
-      builder: (ctx) => Positioned(
-        right: 20,
-        bottom: 120,
-        width: 120,
-        height: 160,
-        child: GestureDetector(
-          onTap: () {
-            hideInAppOverlay();
-            Get.to(() => const CallScreen());
-          },
-          child: Material(
-            color: Colors.black,
-            elevation: 12,
-            borderRadius: BorderRadius.circular(12),
-            clipBehavior: Clip.antiAlias,
-            child: Container(
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.blueAccent, width: 2), // Bright border for debugging
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Stack(
-                children: [
-                  // Remote Video
-                  Positioned.fill(
-                    child: Obx(() {
-                      final renderers = callService.remoteRenderers.values.toList();
-                      if (renderers.isNotEmpty && callService.isVideoCall) {
-                        return RTCVideoView(
-                          renderers[0],
-                          objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                        );
-                      }
-                      return const Center(child: Icon(Icons.call, color: Colors.green, size: 40));
-                    }),
-                  ),
-                  // Local Video
-                  Positioned(
-                    left: 5,
-                    bottom: 5,
-                    width: 40,
-                    height: 60,
-                    child: Obx(() {
-                      if (callService.hasLocalStream.value && callService.isVideoEnabled.value) {
-                        return Container(
-                          decoration: BoxDecoration(
-                            color: Colors.black,
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: Colors.white24, width: 1),
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(5),
-                            child: RTCVideoView(
-                              callService.localRenderer.value,
-                              mirror: true,
-                              objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-                            ),
-                          ),
-                        );
-                      }
-                      return const SizedBox.shrink();
-                    }),
-                  ),
-                  // Hang up button
-                  Positioned(
-                    top: 5,
-                    right: 5,
-                    child: GestureDetector(
-                      onTap: () {
-                        hideInAppOverlay();
-                        callService.endCall();
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(
-                          color: Colors.red,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.close, color: Colors.white, size: 16),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+  void startCall(
+    String userId, {
+    bool video = true,
+    bool isGroup = false,
+    List<String>? participants,
+  }) async {
+    final didStart = await callService.makeCall(
+      userId,
+      video: video,
+      isGroup: isGroup,
+      participants: participants,
     );
-    
-    final overlayState = Get.overlayContext != null 
-        ? Overlay.of(Get.overlayContext!) 
-        : Get.key.currentState?.overlay;
-        
-    if (overlayState != null) {
-      overlayState.insert(_overlayEntry!);
+    if (didStart) {
+      openCallScreen();
+    }
+  }
+
+  void openCallScreen() {
+    _overlayService.hideOverlay();
+    if (isFullCallScreenVisible.value || Get.currentRoute == '/CallScreen') {
+      return;
+    }
+    isFullCallScreenVisible.value = true;
+    Get.to(() => const CallScreen())?.whenComplete(() {
+      isFullCallScreenVisible.value = false;
+    });
+  }
+
+  void hideFullCallScreenForOverlay() {
+    if (!callService.isInCall.value && !callService.isCalling.value) return;
+    isMinimizingToOverlay.value = true;
+    if (isFullCallScreenVisible.value || Get.currentRoute == '/CallScreen') {
+      Get.back();
     } else {
-      Get.log("ERROR: Overlay State is null!");
-      _overlayEntry = null;
+      showOverlayAfterCallScreenClosed();
     }
   }
 
-  void hideInAppOverlay() {
-    _overlayEntry?.remove();
-    _overlayEntry = null;
+  void showOverlayAfterCallScreenClosed() {
+    isFullCallScreenVisible.value = false;
+    isMinimizingToOverlay.value = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!isFullCallScreenVisible.value &&
+          (callService.isInCall.value || callService.isCalling.value)) {
+        _overlayService.showOverlay();
+      }
+    });
   }
 
-  void triggerPiP() async {
-    final canUsePip = await floating.isPipAvailable;
-    if (canUsePip) {
-       floating.enable(ImmediatePiP());
+  Future<void> enterPip() async {
+    if (callService.isInCall.value && callService.isVideoCall) {
+      await _pipService.enterPip();
     }
   }
 
-  void startCall(String userId, {bool video = true, bool isGroup = false, List<String>? participants}) async {
-    await callService.makeCall(userId, video: video, isGroup: isGroup, participants: participants);
-    Get.to(() => const CallScreen());
+  void _showOrUpdateNotification() {
+    if (!callService.isInCall.value) return;
+    final typeLabel = callService.isVideoCall ? 'Video call' : 'Voice call';
+    final remoteName = callService.remoteUserId ?? 'Active call';
+    _notificationService.showOngoingCall(
+      title: typeLabel,
+      body: '$remoteName • ongoing',
+      isVideo: callService.isVideoCall,
+    );
   }
 
   void _showIncomingCallOverlay() {

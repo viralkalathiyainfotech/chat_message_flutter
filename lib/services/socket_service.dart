@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:get/get.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../constants/network_constants.dart';
@@ -8,6 +10,8 @@ class SocketService extends GetxService {
   io.Socket? socket;
   final StorageService _storageService = Get.find<StorageService>();
   final RxBool isConnected = false.obs;
+  Future<void>? _initializingSocket;
+  String? _configuredUserId;
 
   // Callbacks for events
   Function(Map<String, dynamic>)? onReceiveMessage;
@@ -19,7 +23,7 @@ class SocketService extends GetxService {
   Function(Map<String, dynamic>)? onMessageReaction;
   Function(Map<String, dynamic>)? onRemoveMessageReaction;
   Function(List<String>)? onUserStatusChanged;
-  
+
   final RxList<String> onlineUsers = <String>[].obs;
 
   // WebRTC Call Callbacks
@@ -35,30 +39,82 @@ class SocketService extends GetxService {
     _initSocket();
   }
 
-  void connect() {
-    if (socket == null) {
-      _initSocket();
+  Future<void> connect() async {
+    final userId = _storageService.getUserId();
+    if (socket == null || _configuredUserId != userId) {
+      await _initSocket();
     } else if (!isConnected.value) {
       Get.log('==== MANUALLY CONNECTING SOCKET ====');
       socket?.connect();
     }
   }
 
+  Future<bool> ensureConnected({
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    if (isConnected.value) return true;
+
+    await connect();
+
+    final completer = Completer<bool>();
+    late Worker worker;
+    Timer? timer;
+
+    worker = ever<bool>(isConnected, (connected) {
+      if (connected && !completer.isCompleted) {
+        timer?.cancel();
+        worker.dispose();
+        completer.complete(true);
+      }
+    });
+
+    timer = Timer(timeout, () {
+      if (!completer.isCompleted) {
+        worker.dispose();
+        completer.complete(isConnected.value);
+      }
+    });
+
+    return completer.future;
+  }
+
   void disconnect() {
     socket?.disconnect();
+    isConnected.value = false;
   }
 
   Future<void> _initSocket() async {
+    if (_initializingSocket != null) {
+      return _initializingSocket;
+    }
+
+    _initializingSocket = _createSocket();
+    try {
+      await _initializingSocket;
+    } finally {
+      _initializingSocket = null;
+    }
+  }
+
+  Future<void> _createSocket() async {
     Get.log('==== INITIALIZING SOCKET ====');
     final token = _storageService.getToken();
     final userId = _storageService.getUserId();
-    
-    Get.log('==== SOCKET PARAMS: token exists? ${token != null}, userId: $userId ====');
-    
+
+    Get.log(
+      '==== SOCKET PARAMS: token exists? ${token != null}, userId: $userId ====',
+    );
+
     if (token == null || userId == null) {
       Get.log('==== CANNOT INIT SOCKET: Token or UserId missing ====');
       return;
     }
+
+    socket?.disconnect();
+    socket?.dispose();
+    socket = null;
+    isConnected.value = false;
+    _configuredUserId = userId;
 
     // Ensure we have a deviceId for socket
     String? deviceId = _storageService.getString('deviceId');
@@ -67,7 +123,7 @@ class SocketService extends GetxService {
       await _storageService.saveString('deviceId', deviceId);
     }
 
-    final String baseUrl = NetworkConstants.baseUrl.replaceAll('/api', '');
+    const String baseUrl = NetworkConstants.socketUrl;
 
     socket = io.io(
       baseUrl,
@@ -197,6 +253,11 @@ class SocketService extends GetxService {
       if (map != null && onIncomingCall != null) onIncomingCall!(map);
     });
 
+    socket?.on('call-invited', (data) {
+      final map = _safeCast(data);
+      if (map != null && onIncomingCall != null) onIncomingCall!(map);
+    });
+
     socket?.on('call-accepted', (data) {
       final map = _safeCast(data);
       if (map != null && onCallAccepted != null) onCallAccepted!(map);
@@ -297,7 +358,7 @@ class SocketService extends GetxService {
     dynamic payload = data is List && data.isNotEmpty && data.first is List
         ? data.first
         : (data is List ? data : null);
-        
+
     if (payload is List) {
       return payload.map((e) => e.toString()).toList();
     }

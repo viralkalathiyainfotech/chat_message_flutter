@@ -3,6 +3,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../domain/usecases/auth_usecases.dart';
 import '../../../../core/routes/app_routes.dart';
 import 'package:flutter/material.dart';
+import '../../../../services/socket_service.dart';
 
 class AuthController extends GetxController {
   final SendOtpUseCase sendOtpUseCase;
@@ -20,7 +21,7 @@ class AuthController extends GetxController {
 
   // Login
   final phoneController = TextEditingController();
-  
+
   // OTP
   final otpController = TextEditingController();
 
@@ -37,44 +38,41 @@ class AuthController extends GetxController {
       Get.snackbar('Error', 'Please enter your phone number');
       return;
     }
-    
+
     isLoading.value = true;
     mobileNumber.value = phoneController.text.trim();
-    
+
     final result = await sendOtpUseCase("+91${mobileNumber.value}");
-    
+
     isLoading.value = false;
-    
-    result.fold(
-      (failure) => Get.snackbar('Error', failure.message),
-      (_) {
-        Get.snackbar('Success', 'OTP sent successfully');
-        Get.toNamed(AppRoutes.verifyOtp);
-      },
-    );
+
+    result.fold((failure) => Get.snackbar('Error', failure.message), (_) {
+      Get.snackbar('Success', 'OTP sent successfully');
+      Get.toNamed(AppRoutes.verifyOtp);
+    });
   }
 
   Future<void> verifyOtp(String otp) async {
     isLoading.value = true;
-    
-    final result = await verifyOtpUseCase("+91${mobileNumber.value}", otp);
-    
-    isLoading.value = false;
-    
-    result.fold(
-      (failure) => Get.snackbar('Error', failure.message),
-      (user) {
-        Get.snackbar('Success', 'OTP verified');
-        
-        // Populate existing profile details if any
-        userNameController.text = user.userName ?? '';
-        bioController.text = user.bio ?? '';
-        existingPhotoUrl.value = user.profilePhoto ?? '';
 
-        // As requested by user: every time on login the profile update is required
-        Get.offAllNamed(AppRoutes.profileInfo);
-      },
-    );
+    final result = await verifyOtpUseCase("+91${mobileNumber.value}", otp);
+
+    isLoading.value = false;
+
+    result.fold((failure) => Get.snackbar('Error', failure.message), (
+      user,
+    ) async {
+      Get.snackbar('Success', 'OTP verified');
+      await Get.find<SocketService>().ensureConnected();
+
+      // Populate existing profile details if any
+      userNameController.text = user.userName ?? '';
+      bioController.text = user.bio ?? '';
+      existingPhotoUrl.value = user.profilePhoto ?? '';
+
+      // As requested by user: every time on login the profile update is required
+      Get.offAllNamed(AppRoutes.profileInfo);
+    });
   }
 
   Future<void> pickImage() async {
@@ -91,20 +89,17 @@ class AuthController extends GetxController {
     }
 
     isLoading.value = true;
-    
+
     final result = await updateProfileUseCase(
       userNameController.text.trim(),
       bioController.text.trim(),
       selectedImage.value,
     );
-    
+
     isLoading.value = false;
-    
-    result.fold(
-      (failure) => Get.snackbar('Error', failure.message),
-      (user) {
-        Get.offAllNamed(AppRoutes.home);
-      },
-    );
+
+    result.fold((failure) => Get.snackbar('Error', failure.message), (user) {
+      Get.offAllNamed(AppRoutes.home);
+    });
   }
 }

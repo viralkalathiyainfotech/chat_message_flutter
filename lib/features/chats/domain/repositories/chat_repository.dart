@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:chat_app/constants/network_constants.dart';
 import 'package:chat_app/core/network/api_service.dart';
 import 'package:dio/dio.dart' as dio;
 import 'package:get/get.dart';
@@ -31,7 +32,9 @@ class ChatRepository {
     // 2. Fetch from network if online
     if (fetchFromNetwork && _connectivity.isOnline.value) {
       try {
-        final response = await _apiService.dio.get('/allMessageUsers');
+        final response = await _apiService.dio.get(
+          NetworkConstants.allMessageUsers,
+        );
         if (response.statusCode == 200) {
           final usersData = response.data['users'] as List;
           final List<MessageRealm> allMessagesToSave = [];
@@ -99,7 +102,9 @@ class ChatRepository {
           }).toList();
 
           try {
-            final groupResponse = await _apiService.dio.get('/allGroups');
+            final groupResponse = await _apiService.dio.get(
+              NetworkConstants.allGroups,
+            );
             if (groupResponse.statusCode == 200) {
               final groupsData = groupResponse.data as List;
               final fetchedGroups = groupsData.map((data) {
@@ -119,7 +124,9 @@ class ChatRepository {
           }
 
           try {
-            final callsResponse = await _apiService.dio.get('/allCallUsers');
+            final callsResponse = await _apiService.dio.get(
+              NetworkConstants.allCallUsers,
+            );
             if (callsResponse.statusCode == 200) {
               final callsData = callsResponse.data['users'] as List;
               final fetchedCallUsers = callsData.map((data) {
@@ -207,7 +214,7 @@ class ChatRepository {
     if (fetchFromNetwork && _connectivity.isOnline.value) {
       try {
         final response = await _apiService.dio.post(
-          '/allMessages',
+          NetworkConstants.allMessages,
           data: {'selectedId': userId},
         );
         if (response.statusCode == 200) {
@@ -331,7 +338,10 @@ class ChatRepository {
       'file': await dio.MultipartFile.fromFile(path, filename: fileName),
     });
 
-    final response = await _apiService.dio.post('/upload', data: formData);
+    final response = await _apiService.dio.post(
+      NetworkConstants.upload,
+      data: formData,
+    );
     if (response.statusCode != 200 ||
         response.data == null ||
         response.data['fileUrl'] == null) {
@@ -482,7 +492,7 @@ class ChatRepository {
     if (_connectivity.isOnline.value) {
       try {
         await _apiService.dio.put(
-          '/updateMessage/$messageId',
+          NetworkConstants.updateMessage(messageId),
           data: {
             'content': {'type': type, 'content': finalContent},
           },
@@ -526,7 +536,9 @@ class ChatRepository {
     // 2. Fetch from network if online
     if (_connectivity.isOnline.value) {
       try {
-        final response = await _apiService.dio.get('/allContactUsers');
+        final response = await _apiService.dio.get(
+          NetworkConstants.allContactUsers,
+        );
         if (response.statusCode == 200) {
           final usersData = response.data['users'] as List;
           final fetchedUsers = usersData.map((data) {
@@ -615,7 +627,7 @@ class ChatRepository {
       if (_connectivity.isOnline.value) {
         try {
           await _apiService.dio.post(
-            '/addContactList',
+            NetworkConstants.addContactList,
             data: [
               {"contacts": apiContactsPayload},
             ],
