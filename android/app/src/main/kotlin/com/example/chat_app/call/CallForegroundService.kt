@@ -33,7 +33,15 @@ class CallForegroundService : Service() {
         val title = intent?.getStringExtra(EXTRA_TITLE) ?: "Ongoing call"
         val body = intent?.getStringExtra(EXTRA_BODY) ?: "Tap to return to call"
         val isVideo = intent?.getBooleanExtra(EXTRA_IS_VIDEO, false) ?: false
-        val notification = notificationHelper.buildOngoingCallNotification(title, body)
+        val isMicEnabled = intent?.getBooleanExtra(EXTRA_IS_MIC_ENABLED, true) ?: true
+        val isCameraEnabled = intent?.getBooleanExtra(EXTRA_IS_CAMERA_ENABLED, true) ?: true
+        val notification = notificationHelper.buildOngoingCallNotification(
+            title = title,
+            body = body,
+            isVideo = isVideo,
+            isMicEnabled = isMicEnabled,
+            isCameraEnabled = isCameraEnabled,
+        )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val serviceType = if (isVideo) {
@@ -54,5 +62,7 @@ class CallForegroundService : Service() {
         const val EXTRA_TITLE = "title"
         const val EXTRA_BODY = "body"
         const val EXTRA_IS_VIDEO = "isVideo"
+        const val EXTRA_IS_MIC_ENABLED = "isMicEnabled"
+        const val EXTRA_IS_CAMERA_ENABLED = "isCameraEnabled"
     }
 }

@@ -17,6 +17,7 @@ class CallController extends GetxController {
   final RxString callDuration = '00:00'.obs;
   final RxBool isFullCallScreenVisible = false.obs;
   final RxBool isMinimizingToOverlay = false.obs;
+  RxBool get isInPipMode => _pipService.isInPipMode;
   Timer? _callTimer;
   int _seconds = 0;
 
@@ -65,7 +66,11 @@ class CallController extends GetxController {
     ever(callService.isInCall, (bool isInCall) {
       if (isInCall) {
         _startTimer();
-        _pipService.setCallActive(callService.isVideoCall);
+        _pipService.setCallActive(
+          callService.isVideoCall,
+          audioEnabled: callService.isAudioEnabled.value,
+          videoEnabled: callService.isVideoEnabled.value,
+        );
         _showOrUpdateNotification();
         openCallScreen();
       } else {
@@ -80,6 +85,15 @@ class CallController extends GetxController {
           Get.back();
         }
       }
+    });
+
+    everAll([callService.isAudioEnabled, callService.isVideoEnabled], (_) {
+      if (!callService.isInCall.value) return;
+      _pipService.updateCallControls(
+        audioEnabled: callService.isAudioEnabled.value,
+        videoEnabled: callService.isVideoEnabled.value,
+      );
+      _showOrUpdateNotification();
     });
   }
 
@@ -134,7 +148,14 @@ class CallController extends GetxController {
 
   Future<void> enterPip() async {
     if (callService.isInCall.value && callService.isVideoCall) {
-      await _pipService.enterPip();
+      final didEnter = await _pipService.enterPip();
+      if (!didEnter) {
+        Get.snackbar(
+          'PiP unavailable',
+          'Your device or current screen did not allow picture-in-picture.',
+          snackPosition: SnackPosition.BOTTOM,
+        );
+      }
     }
   }
 
@@ -146,6 +167,8 @@ class CallController extends GetxController {
       title: typeLabel,
       body: '$remoteName • ongoing',
       isVideo: callService.isVideoCall,
+      audioEnabled: callService.isAudioEnabled.value,
+      videoEnabled: callService.isVideoEnabled.value,
     );
   }
 

@@ -10,6 +10,7 @@ class CallService extends GetxService {
   final StorageService _storageService = Get.find<StorageService>();
 
   Map<String, RTCPeerConnection> peerConnections = {};
+  final Map<String, List<RTCIceCandidate>> _pendingRemoteCandidates = {};
   MediaStream? localStream;
 
   // Reactive states
@@ -27,6 +28,8 @@ class CallService extends GetxService {
   final RxMap<String, RTCVideoRenderer> remoteRenderers =
       <String, RTCVideoRenderer>{}.obs;
   final RxMap<String, MediaStream> remoteStreams = <String, MediaStream>{}.obs;
+  final RxList<CallAudioOutput> audioOutputs = <CallAudioOutput>[].obs;
+  final RxString selectedAudioOutputId = 'speaker'.obs;
 
   String? currentRoomId;
   String? remoteUserId; // for 1-to-1, or groupId for group calls
@@ -66,37 +69,52 @@ class CallService extends GetxService {
 
     _socketService.onCallAccepted = (data) async {
       final signal = data['signal'];
-      final fromEmail = data['fromEmail'];
-      if (signal != null && peerConnections.containsKey(fromEmail)) {
+      final peerId = _peerIdFromPayload(data);
+      if (signal != null &&
+          peerId != null &&
+          peerConnections.containsKey(peerId)) {
         if (signal['type'] == 'answer') {
-          await peerConnections[fromEmail]!.setRemoteDescription(
-            RTCSessionDescription(signal['sdp'], signal['type']),
-          );
+          final didApplyAnswer = await _applyRemoteDescription(peerId, signal);
+          if (didApplyAnswer) {
+            _markCallConnected();
+          }
         }
+      } else {
+        Get.log('Unable to apply call answer from payload: $data');
       }
-      isCalling.value = false;
-      isInCall.value = true;
-      callStartTime ??= DateTime.now();
     };
 
     _socketService.onCallSignal = (data) async {
       final signal = data['signal'];
-      final from = data['from'];
-      if (signal != null && peerConnections.containsKey(from)) {
-        final pc = peerConnections[from]!;
-        if (signal['type'] == 'candidate' || signal['candidate'] != null) {
-          final candidateMap = signal['candidate'] ?? signal;
-          await pc.addCandidate(
-            RTCIceCandidate(
-              candidateMap['candidate'],
-              candidateMap['sdpMid'],
-              candidateMap['sdpMLineIndex'] ?? 0,
-            ),
-          );
-        } else if (signal['type'] == 'offer' || signal['type'] == 'answer') {
-          await pc.setRemoteDescription(
-            RTCSessionDescription(signal['sdp'], signal['type']),
-          );
+      final peerId = _peerIdFromPayload(data);
+      if (signal == null || peerId == null) return;
+
+      if (signal['type'] == 'offer' && !peerConnections.containsKey(peerId)) {
+        await _createPeerConnection(peerId, isInitiator: false, offer: signal);
+        isInCall.value = true;
+        callStartTime ??= DateTime.now();
+        return;
+      }
+
+      final pc = peerConnections[peerId];
+      if (pc == null) {
+        final candidate = _candidateFromSignal(signal);
+        if (candidate != null) {
+          _pendingRemoteCandidates.putIfAbsent(peerId, () => []).add(candidate);
+        }
+        return;
+      }
+
+      final candidate = _candidateFromSignal(signal);
+      if (candidate != null) {
+        await _addOrBufferRemoteCandidate(peerId, pc, candidate);
+      } else if (signal['type'] == 'offer' || signal['type'] == 'answer') {
+        final didApplyDescription = await _applyRemoteDescription(
+          peerId,
+          signal,
+        );
+        if (didApplyDescription && signal['type'] == 'answer') {
+          _markCallConnected();
         }
       }
     };
@@ -238,8 +256,63 @@ class CallService extends GetxService {
       localRenderer.value.srcObject = localStream;
       hasLocalStream.value = true;
       localRenderer.refresh();
+      if (video) {
+        await refreshAudioOutputs();
+        await selectAudioOutput('speaker');
+      }
     } catch (e) {
       Get.log("Error getting user media: $e", isError: true);
+    }
+  }
+
+  Future<void> refreshAudioOutputs() async {
+    if (!isVideoCall) return;
+
+    try {
+      final devices = await Helper.audiooutputs;
+      final outputs = <CallAudioOutput>[
+        const CallAudioOutput(
+          id: 'speaker',
+          label: 'Main speaker',
+          icon: Icons.volume_up,
+        ),
+      ];
+
+      for (final device in devices) {
+        final output = CallAudioOutput.fromMediaDevice(device);
+        if (output == null || output.id == 'speaker') continue;
+        if (outputs.any((item) => item.id == output.id)) continue;
+        outputs.add(output);
+      }
+
+      audioOutputs.assignAll(outputs);
+      if (!outputs.any((output) => output.id == selectedAudioOutputId.value)) {
+        selectedAudioOutputId.value = 'speaker';
+      }
+    } catch (e) {
+      Get.log('Unable to refresh audio outputs: $e', isError: true);
+      audioOutputs.assignAll(const [
+        CallAudioOutput(
+          id: 'speaker',
+          label: 'Main speaker',
+          icon: Icons.volume_up,
+        ),
+      ]);
+    }
+  }
+
+  Future<void> selectAudioOutput(String outputId) async {
+    if (!isVideoCall) return;
+
+    try {
+      await Helper.selectAudioOutput(outputId);
+      for (final renderer in remoteRenderers.values) {
+        await renderer.audioOutput(outputId);
+      }
+      await localRenderer.value.audioOutput(outputId);
+      selectedAudioOutputId.value = outputId;
+    } catch (e) {
+      Get.log('Unable to select audio output $outputId: $e', isError: true);
     }
   }
 
@@ -252,7 +325,7 @@ class CallService extends GetxService {
 
     final configuration = {
       'iceServers': [
-        {'url': 'stun:stun.l.google.com:19302'},
+        {'urls': 'stun:stun.l.google.com:19302'},
       ],
     };
 
@@ -260,9 +333,9 @@ class CallService extends GetxService {
     peerConnections[peerId] = pc;
 
     if (localStream != null) {
-      localStream!.getTracks().forEach((track) {
-        pc.addTrack(track, localStream!);
-      });
+      for (final track in localStream!.getTracks()) {
+        await pc.addTrack(track, localStream!);
+      }
     }
 
     pc.onIceCandidate = (RTCIceCandidate candidate) {
@@ -281,13 +354,29 @@ class CallService extends GetxService {
       });
     };
 
+    pc.onTrack = (RTCTrackEvent event) async {
+      Get.log(
+        'Remote track from $peerId: '
+        'kind=${event.track.kind}, streams=${event.streams.length}',
+      );
+
+      if (event.track.kind != 'video') return;
+
+      final stream = _videoStreamFromTrackEvent(event);
+      if (stream != null) {
+        await _attachRemoteStream(peerId, stream);
+        return;
+      }
+
+      final fallbackStream = await createLocalMediaStream(
+        'remote-video-$peerId-${event.track.id ?? DateTime.now().microsecondsSinceEpoch}',
+      );
+      await fallbackStream.addTrack(event.track);
+      await _attachRemoteStream(peerId, fallbackStream);
+    };
+
     pc.onAddStream = (MediaStream stream) async {
-      remoteStreams[peerId] = stream;
-      final renderer = RTCVideoRenderer();
-      await renderer.initialize();
-      renderer.srcObject = stream;
-      remoteRenderers[peerId] = renderer;
-      hasRemoteStream.value = true;
+      await _attachRemoteStream(peerId, stream);
     };
 
     if (isInitiator) {
@@ -306,24 +395,181 @@ class CallService extends GetxService {
       });
     } else if (offer != null) {
       if (offer['type'] == 'offer') {
-        await pc.setRemoteDescription(
-          RTCSessionDescription(offer['sdp'], offer['type']),
-        );
+        final didApplyOffer = await _applyRemoteDescription(peerId, offer);
+        if (!didApplyOffer) return;
         final answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
 
         _socketService.emitCallAccept({
           'signal': {'type': answer.type, 'sdp': answer.sdp},
-          'fromEmail': peerId,
-          'toEmail': _storageService.getUserId(),
+          'fromEmail': _storageService.getUserId(),
+          'toEmail': peerId,
           'participants': callParticipants.toList(),
+          'roomId': currentRoomId,
+        });
+
+        _socketService.emitCallSignal({
+          'signal': {'type': answer.type, 'sdp': answer.sdp},
+          'from': _storageService.getUserId(),
+          'to': peerId,
           'roomId': currentRoomId,
         });
       }
     }
   }
 
+  void _markCallConnected() {
+    isCalling.value = false;
+    isReceivingCall.value = false;
+    isInCall.value = true;
+    callStartTime ??= DateTime.now();
+  }
+
+  Future<bool> _applyRemoteDescription(
+    String peerId,
+    Map<dynamic, dynamic> signal,
+  ) async {
+    final pc = peerConnections[peerId];
+    if (pc == null) return false;
+
+    final type = signal['type']?.toString();
+    final sdp = signal['sdp']?.toString();
+    if (type == null || sdp == null || sdp.isEmpty) return false;
+
+    final state = await pc.getSignalingState();
+    if (type == 'answer' &&
+        state != RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
+      Get.log('Skipping remote answer for $peerId in signaling state $state');
+      return false;
+    }
+
+    if (type == 'offer' && state != RTCSignalingState.RTCSignalingStateStable) {
+      Get.log('Skipping remote offer for $peerId in signaling state $state');
+      return false;
+    }
+
+    try {
+      await pc.setRemoteDescription(RTCSessionDescription(sdp, type));
+      await _flushPendingRemoteCandidates(peerId);
+      return true;
+    } catch (e) {
+      Get.log('Unable to apply remote $type for $peerId: $e', isError: true);
+      return false;
+    }
+  }
+
+  String? _peerIdFromPayload(Map<String, dynamic> data) {
+    final myId = _storageService.getUserId();
+    final candidates = [
+      data['from'],
+      data['fromEmail'],
+      data['senderId'],
+      data['userId'],
+      data['to'],
+      data['toEmail'],
+      data['receiverId'],
+    ];
+
+    for (final candidate in candidates) {
+      final id = candidate?.toString();
+      if (id != null && id.isNotEmpty && id != myId) return id;
+    }
+    return null;
+  }
+
+  MediaStream? _videoStreamFromTrackEvent(RTCTrackEvent event) {
+    for (final stream in event.streams) {
+      if (stream.getVideoTracks().isNotEmpty) return stream;
+    }
+    return null;
+  }
+
+  RTCIceCandidate? _candidateFromSignal(dynamic signal) {
+    if (signal is! Map) return null;
+    if (signal['type'] != 'candidate' && signal['candidate'] == null) {
+      return null;
+    }
+
+    final candidateMap = signal['candidate'] is Map
+        ? signal['candidate'] as Map
+        : signal;
+    final candidate = candidateMap['candidate']?.toString();
+    if (candidate == null || candidate.isEmpty) return null;
+
+    final sdpMLineIndexValue = candidateMap['sdpMLineIndex'];
+    final sdpMLineIndex = sdpMLineIndexValue is int
+        ? sdpMLineIndexValue
+        : int.tryParse(sdpMLineIndexValue?.toString() ?? '') ?? 0;
+
+    return RTCIceCandidate(
+      candidate,
+      candidateMap['sdpMid']?.toString(),
+      sdpMLineIndex,
+    );
+  }
+
+  Future<void> _addOrBufferRemoteCandidate(
+    String peerId,
+    RTCPeerConnection pc,
+    RTCIceCandidate candidate,
+  ) async {
+    try {
+      await pc.addCandidate(candidate);
+    } catch (e) {
+      _pendingRemoteCandidates.putIfAbsent(peerId, () => []).add(candidate);
+      Get.log('Buffered ICE candidate for $peerId: $e');
+    }
+  }
+
+  Future<void> _flushPendingRemoteCandidates(String peerId) async {
+    final pc = peerConnections[peerId];
+    final candidates = _pendingRemoteCandidates.remove(peerId);
+    if (pc == null || candidates == null) return;
+
+    for (final candidate in candidates) {
+      try {
+        await pc.addCandidate(candidate);
+      } catch (e) {
+        Get.log('Unable to add buffered ICE candidate for $peerId: $e');
+      }
+    }
+  }
+
+  Future<void> _attachRemoteStream(String peerId, MediaStream stream) async {
+    final videoTrackCount = stream.getVideoTracks().length;
+    final audioTrackCount = stream.getAudioTracks().length;
+    if (videoTrackCount == 0) {
+      Get.log(
+        'Ignoring remote stream for $peerId without video tracks '
+        '(audio: $audioTrackCount)',
+      );
+      return;
+    }
+
+    remoteStreams[peerId] = stream;
+
+    final existingRenderer = remoteRenderers[peerId];
+    if (existingRenderer != null) {
+      existingRenderer.srcObject = stream;
+      remoteRenderers.refresh();
+    } else {
+      final renderer = RTCVideoRenderer();
+      await renderer.initialize();
+      renderer.srcObject = stream;
+      await renderer.audioOutput(selectedAudioOutputId.value);
+      remoteRenderers[peerId] = renderer;
+    }
+
+    hasRemoteStream.value = true;
+    Get.log(
+      'Remote stream attached for $peerId '
+      '(video: $videoTrackCount, '
+      'audio: $audioTrackCount)',
+    );
+  }
+
   void _removePeer(String peerId) {
+    _pendingRemoteCandidates.remove(peerId);
     if (peerConnections.containsKey(peerId)) {
       peerConnections[peerId]?.close();
       peerConnections[peerId]?.dispose();
@@ -483,6 +729,8 @@ class CallService extends GetxService {
     isVideoCall = false;
     isGroupCall = false;
     callParticipants.clear();
+    audioOutputs.clear();
+    selectedAudioOutputId.value = 'speaker';
 
     localStream?.getTracks().forEach((track) => track.stop());
     localStream?.dispose();
@@ -501,6 +749,7 @@ class CallService extends GetxService {
       pc.dispose();
     }
     peerConnections.clear();
+    _pendingRemoteCandidates.clear();
 
     for (var renderer in remoteRenderers.values) {
       renderer.srcObject = null;
@@ -516,5 +765,56 @@ class CallService extends GetxService {
     _resetCallState();
     localRenderer.value.dispose();
     super.onClose();
+  }
+}
+
+class CallAudioOutput {
+  const CallAudioOutput({
+    required this.id,
+    required this.label,
+    required this.icon,
+  });
+
+  final String id;
+  final String label;
+  final IconData icon;
+
+  static CallAudioOutput? fromMediaDevice(MediaDeviceInfo device) {
+    final id = device.deviceId;
+    final normalizedId = id.toLowerCase();
+    final normalizedLabel = device.label.toLowerCase();
+
+    if (normalizedId == 'earpiece' || normalizedLabel.contains('earpiece')) {
+      return null;
+    }
+
+    if (normalizedId == 'speaker' || normalizedLabel.contains('speaker')) {
+      return const CallAudioOutput(
+        id: 'speaker',
+        label: 'Main speaker',
+        icon: Icons.volume_up,
+      );
+    }
+
+    if (normalizedId == 'bluetooth' || normalizedLabel.contains('bluetooth')) {
+      return CallAudioOutput(
+        id: id,
+        label: device.label.isEmpty ? 'Bluetooth' : device.label,
+        icon: Icons.bluetooth_audio,
+      );
+    }
+
+    if (normalizedId == 'wired-headset' ||
+        normalizedLabel.contains('wired') ||
+        normalizedLabel.contains('headset') ||
+        normalizedLabel.contains('headphone')) {
+      return CallAudioOutput(
+        id: id,
+        label: device.label.isEmpty ? 'Wired headset' : device.label,
+        icon: Icons.headphones,
+      );
+    }
+
+    return null;
   }
 }

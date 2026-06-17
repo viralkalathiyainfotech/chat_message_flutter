@@ -27,7 +27,13 @@ class CallNotificationHelper(private val context: Context) {
         notificationManager.createNotificationChannel(channel)
     }
 
-    fun buildOngoingCallNotification(title: String, body: String): Notification {
+    fun buildOngoingCallNotification(
+        title: String,
+        body: String,
+        isVideo: Boolean,
+        isMicEnabled: Boolean,
+        isCameraEnabled: Boolean,
+    ): Notification {
         val openIntent = Intent(context, MainActivity::class.java).apply {
             action = MainActivity.ACTION_OPEN_CALL
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -39,23 +45,13 @@ class CallNotificationHelper(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or pendingIntentImmutableFlag(),
         )
 
-        val hangupIntent = Intent(context, CallActionReceiver::class.java).apply {
-            action = MainActivity.ACTION_HANGUP_CALL
-        }
-        val hangupPendingIntent = PendingIntent.getBroadcast(
-            context,
-            HANGUP_REQUEST_CODE,
-            hangupIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or pendingIntentImmutableFlag(),
-        )
-
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(context, CALL_CHANNEL_ID)
         } else {
             Notification.Builder(context)
         }
 
-        return builder
+        builder
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
             .setContentText(body)
@@ -67,14 +63,59 @@ class CallNotificationHelper(private val context: Context) {
             .setWhen(System.currentTimeMillis())
             .setUsesChronometer(true)
             .setShowWhen(true)
-            .addAction(
-                Notification.Action.Builder(
-                    R.mipmap.ic_launcher,
-                    "Hang up",
-                    hangupPendingIntent,
-                ).build(),
+
+        builder.addAction(
+            buildAction(
+                action = MainActivity.ACTION_TOGGLE_MIC,
+                requestCode = TOGGLE_MIC_REQUEST_CODE,
+                iconRes = if (isMicEnabled) R.drawable.ic_pip_mic_24 else R.drawable.ic_pip_mic_off_24,
+                title = if (isMicEnabled) "Mute" else "Unmute",
+            ),
+        )
+
+        if (isVideo) {
+            builder.addAction(
+                buildAction(
+                    action = MainActivity.ACTION_TOGGLE_CAMERA,
+                    requestCode = TOGGLE_CAMERA_REQUEST_CODE,
+                    iconRes = if (isCameraEnabled) {
+                        R.drawable.ic_pip_videocam_24
+                    } else {
+                        R.drawable.ic_pip_videocam_off_24
+                    },
+                    title = if (isCameraEnabled) "Camera off" else "Camera on",
+                ),
             )
-            .build()
+        }
+
+        builder.addAction(
+            buildAction(
+                action = MainActivity.ACTION_HANGUP_CALL,
+                requestCode = HANGUP_REQUEST_CODE,
+                iconRes = R.drawable.ic_pip_call_end_24,
+                title = "Hang up",
+            ),
+        )
+
+        return builder.build()
+    }
+
+    private fun buildAction(
+        action: String,
+        requestCode: Int,
+        iconRes: Int,
+        title: String,
+    ): Notification.Action {
+        val intent = Intent(context, CallActionReceiver::class.java).apply {
+            this.action = action
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or pendingIntentImmutableFlag(),
+        )
+        return Notification.Action.Builder(iconRes, title, pendingIntent).build()
     }
 
     private val notificationManager: NotificationManager
@@ -93,5 +134,7 @@ class CallNotificationHelper(private val context: Context) {
         const val CALL_NOTIFICATION_ID = 2101
         private const val OPEN_CALL_REQUEST_CODE = 4101
         private const val HANGUP_REQUEST_CODE = 4102
+        private const val TOGGLE_MIC_REQUEST_CODE = 4103
+        private const val TOGGLE_CAMERA_REQUEST_CODE = 4104
     }
 }

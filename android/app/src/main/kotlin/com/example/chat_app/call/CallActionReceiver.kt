@@ -7,10 +7,17 @@ import com.example.chat_app.MainActivity
 
 class CallActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != MainActivity.ACTION_HANGUP_CALL) return
+        val action = intent.action
+        if (
+            action != MainActivity.ACTION_HANGUP_CALL &&
+            action != MainActivity.ACTION_TOGGLE_MIC &&
+            action != MainActivity.ACTION_TOGGLE_CAMERA
+        ) {
+            return
+        }
 
         context.sendBroadcast(
-            Intent(MainActivity.ACTION_HANGUP_CALL).setPackage(context.packageName),
+            Intent(action).setPackage(context.packageName),
         )
     }
 }

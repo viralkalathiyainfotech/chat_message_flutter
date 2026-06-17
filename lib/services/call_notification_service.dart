@@ -23,6 +23,8 @@ class CallNotificationService extends GetxService {
     required String title,
     required String body,
     required bool isVideo,
+    required bool audioEnabled,
+    required bool videoEnabled,
   }) async {
     try {
       await _ensureNotificationPermission();
@@ -30,6 +32,8 @@ class CallNotificationService extends GetxService {
         'title': title,
         'body': body,
         'isVideo': isVideo,
+        'audioEnabled': audioEnabled,
+        'videoEnabled': videoEnabled,
       });
     } on PlatformException catch (e) {
       Get.log('Unable to show call notification: ${e.message}', isError: true);
@@ -55,6 +59,16 @@ class CallNotificationService extends GetxService {
       case 'hangupCall':
         if (_callService.isInCall.value || _callService.isCalling.value) {
           _callService.endCall();
+        }
+        break;
+      case 'toggleAudio':
+        if (_callService.isInCall.value || _callService.isCalling.value) {
+          _callService.toggleAudio();
+        }
+        break;
+      case 'toggleVideo':
+        if (_callService.isInCall.value || _callService.isCalling.value) {
+          _callService.toggleVideo();
         }
         break;
       case 'openCallScreen':
