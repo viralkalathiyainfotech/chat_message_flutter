@@ -87,14 +87,21 @@ class CallController extends GetxController {
       }
     });
 
-    everAll([callService.isAudioEnabled, callService.isVideoEnabled], (_) {
-      if (!callService.isInCall.value) return;
-      _pipService.updateCallControls(
-        audioEnabled: callService.isAudioEnabled.value,
-        videoEnabled: callService.isVideoEnabled.value,
-      );
-      _showOrUpdateNotification();
-    });
+    everAll(
+      [
+        callService.isAudioEnabled,
+        callService.isVideoEnabled,
+        callService.isScreenSharing,
+      ],
+      (_) {
+        if (!callService.isInCall.value) return;
+        _pipService.updateCallControls(
+          audioEnabled: callService.isAudioEnabled.value,
+          videoEnabled: callService.isVideoEnabled.value,
+        );
+        _showOrUpdateNotification();
+      },
+    );
   }
 
   void startCall(
@@ -169,6 +176,7 @@ class CallController extends GetxController {
       isVideo: callService.isVideoCall,
       audioEnabled: callService.isAudioEnabled.value,
       videoEnabled: callService.isVideoEnabled.value,
+      isScreenSharing: callService.isScreenSharing.value,
     );
   }
 

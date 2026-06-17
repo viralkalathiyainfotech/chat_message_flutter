@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:get/get.dart' hide navigator;
 import 'package:uuid/uuid.dart';
@@ -6,12 +7,19 @@ import 'socket_service.dart';
 import 'storage_service.dart';
 
 class CallService extends GetxService {
+  static const MethodChannel _notificationChannel = MethodChannel(
+    'app.call/notification',
+  );
+
   final SocketService _socketService = Get.find<SocketService>();
   final StorageService _storageService = Get.find<StorageService>();
 
   Map<String, RTCPeerConnection> peerConnections = {};
   final Map<String, List<RTCIceCandidate>> _pendingRemoteCandidates = {};
   MediaStream? localStream;
+  MediaStream? _screenShareStream;
+  MediaStreamTrack? _cameraVideoTrackBeforeScreenShare;
+  bool _isStoppingScreenShare = false;
 
   // Reactive states
   final RxBool isCalling = false.obs;
@@ -659,61 +667,135 @@ class CallService extends GetxService {
   }
 
   Future<void> toggleScreenShare() async {
-    // Screen sharing is more complex in a mesh network, simplified for now
     if (localStream == null || peerConnections.isEmpty) return;
 
     if (!isScreenSharing.value) {
-      try {
-        final displayMedia = await navigator.mediaDevices.getDisplayMedia({
-          'video': true,
-          'audio': false,
-        });
-
-        final videoTrack = displayMedia.getVideoTracks()[0];
-
-        for (var pc in peerConnections.values) {
-          final senders = await pc.getSenders();
-          for (var sender in senders) {
-            if (sender.track?.kind == 'video') {
-              await sender.replaceTrack(videoTrack);
-            }
-          }
-        }
-
-        localRenderer.value.srcObject = displayMedia;
-        localRenderer.refresh();
-        isScreenSharing.value = true;
-
-        videoTrack.onEnded = () {
-          toggleScreenShare(); // revert back to camera
-        };
-      } catch (e) {
-        Get.log("Error sharing screen: $e", isError: true);
-      }
+      await _startScreenShare();
     } else {
-      // Revert to camera
-      try {
-        final cameraStream = await navigator.mediaDevices.getUserMedia({
-          'video': {'facingMode': 'user'},
-          'audio': false,
-        });
+      await _stopScreenShare();
+    }
+  }
 
-        final videoTrack = cameraStream.getVideoTracks()[0];
-        for (var pc in peerConnections.values) {
-          final senders = await pc.getSenders();
-          for (var sender in senders) {
-            if (sender.track?.kind == 'video') {
-              await sender.replaceTrack(videoTrack);
-            }
-          }
-        }
-
-        localRenderer.value.srcObject = localStream;
-        localRenderer.refresh();
-        isScreenSharing.value = false;
-      } catch (e) {
-        Get.log("Error stopping screen share: $e", isError: true);
+  Future<void> _startScreenShare() async {
+    MediaStream? displayMedia;
+    try {
+      final cameraTracks = localStream!.getVideoTracks();
+      if (cameraTracks.isEmpty) {
+        Get.log('Cannot start screen share without an active video track');
+        return;
       }
+
+      _cameraVideoTrackBeforeScreenShare = cameraTracks.first;
+      await _setScreenShareForegroundState(true);
+      displayMedia = await navigator.mediaDevices.getDisplayMedia({
+        'video': true,
+        'audio': false,
+      });
+
+      final displayTracks = displayMedia.getVideoTracks();
+      if (displayTracks.isEmpty) {
+        await _disposeMediaStream(displayMedia);
+        await _setScreenShareForegroundState(false);
+        Get.log('Screen share did not return a video track', isError: true);
+        return;
+      }
+
+      final screenTrack = displayTracks.first;
+      _screenShareStream = displayMedia;
+      await _replaceOutgoingVideoTrack(screenTrack);
+
+      localRenderer.value.srcObject = displayMedia;
+      localRenderer.refresh();
+      isScreenSharing.value = true;
+
+      screenTrack.onEnded = () {
+        if (!_isStoppingScreenShare && isScreenSharing.value) {
+          _stopScreenShare();
+        }
+      };
+    } catch (e) {
+      await _disposeMediaStream(_screenShareStream ?? displayMedia);
+      _screenShareStream = null;
+      _cameraVideoTrackBeforeScreenShare = null;
+      isScreenSharing.value = false;
+      localRenderer.value.srcObject = localStream;
+      localRenderer.refresh();
+      await _setScreenShareForegroundState(false);
+      Get.log("Error sharing screen: $e", isError: true);
+    }
+  }
+
+  Future<void> _stopScreenShare() async {
+    if (_isStoppingScreenShare) return;
+    _isStoppingScreenShare = true;
+
+    try {
+      final cameraTrack =
+          _cameraVideoTrackBeforeScreenShare ??
+          (localStream!.getVideoTracks().isNotEmpty
+              ? localStream!.getVideoTracks().first
+              : null);
+
+      if (cameraTrack != null) {
+        await _replaceOutgoingVideoTrack(cameraTrack);
+      }
+
+      await _disposeMediaStream(_screenShareStream);
+      _screenShareStream = null;
+      _cameraVideoTrackBeforeScreenShare = null;
+
+      localRenderer.value.srcObject = localStream;
+      localRenderer.refresh();
+      isScreenSharing.value = false;
+      await _setScreenShareForegroundState(false);
+    } catch (e) {
+      Get.log("Error stopping screen share: $e", isError: true);
+    } finally {
+      _isStoppingScreenShare = false;
+    }
+  }
+
+  Future<void> _replaceOutgoingVideoTrack(MediaStreamTrack videoTrack) async {
+    for (final pc in peerConnections.values) {
+      final senders = await pc.getSenders();
+      for (final sender in senders) {
+        if (sender.track?.kind == 'video') {
+          await sender.replaceTrack(videoTrack);
+        }
+      }
+    }
+  }
+
+  Future<void> _disposeMediaStream(MediaStream? stream) async {
+    if (stream == null) return;
+    for (final track in stream.getTracks()) {
+      await track.stop();
+    }
+    await stream.dispose();
+  }
+
+  Future<void> _setScreenShareForegroundState(bool active) async {
+    if (!isInCall.value) return;
+
+    try {
+      final typeLabel = isVideoCall ? 'Video call' : 'Voice call';
+      final remoteName = remoteUserId ?? 'Active call';
+      await _notificationChannel.invokeMethod<void>('showOngoingCall', {
+        'title': typeLabel,
+        'body': '$remoteName • ongoing',
+        'isVideo': isVideoCall,
+        'audioEnabled': isAudioEnabled.value,
+        'videoEnabled': isVideoEnabled.value,
+        'isScreenSharing': active,
+      });
+      if (active) {
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      }
+    } on PlatformException catch (e) {
+      Get.log(
+        'Unable to update screen share foreground service: ${e.message}',
+        isError: true,
+      );
     }
   }
 
@@ -735,6 +817,12 @@ class CallService extends GetxService {
     localStream?.getTracks().forEach((track) => track.stop());
     localStream?.dispose();
     localStream = null;
+    _screenShareStream?.getTracks().forEach((track) => track.stop());
+    _screenShareStream?.dispose();
+    _screenShareStream = null;
+    _cameraVideoTrackBeforeScreenShare = null;
+    _isStoppingScreenShare = false;
+    isScreenSharing.value = false;
     hasLocalStream.value = false;
 
     for (var stream in remoteStreams.values) {

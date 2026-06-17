@@ -35,6 +35,7 @@ class CallForegroundService : Service() {
         val isVideo = intent?.getBooleanExtra(EXTRA_IS_VIDEO, false) ?: false
         val isMicEnabled = intent?.getBooleanExtra(EXTRA_IS_MIC_ENABLED, true) ?: true
         val isCameraEnabled = intent?.getBooleanExtra(EXTRA_IS_CAMERA_ENABLED, true) ?: true
+        val isScreenSharing = intent?.getBooleanExtra(EXTRA_IS_SCREEN_SHARING, false) ?: false
         val notification = notificationHelper.buildOngoingCallNotification(
             title = title,
             body = body,
@@ -44,11 +45,12 @@ class CallForegroundService : Service() {
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val serviceType = if (isVideo) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            } else {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            var serviceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            if (isVideo) {
+                serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+            }
+            if (isScreenSharing) {
+                serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             }
             startForeground(CallNotificationHelper.CALL_NOTIFICATION_ID, notification, serviceType)
         } else {
@@ -64,5 +66,6 @@ class CallForegroundService : Service() {
         const val EXTRA_IS_VIDEO = "isVideo"
         const val EXTRA_IS_MIC_ENABLED = "isMicEnabled"
         const val EXTRA_IS_CAMERA_ENABLED = "isCameraEnabled"
+        const val EXTRA_IS_SCREEN_SHARING = "isScreenSharing"
     }
 }

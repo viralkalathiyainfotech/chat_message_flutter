@@ -97,6 +97,7 @@ class MainActivity : FlutterActivity() {
                                 isVideo = args["isVideo"] as? Boolean ?: false,
                                 isMicEnabled = args["audioEnabled"] as? Boolean ?: true,
                                 isCameraEnabled = args["videoEnabled"] as? Boolean ?: true,
+                                isScreenSharing = args["isScreenSharing"] as? Boolean ?: false,
                             )
                             result.success(null)
                         }
@@ -266,6 +267,7 @@ class MainActivity : FlutterActivity() {
         isVideo: Boolean,
         isMicEnabled: Boolean,
         isCameraEnabled: Boolean,
+        isScreenSharing: Boolean,
     ) {
         this.isMicEnabled = isMicEnabled
         this.isCameraEnabled = isCameraEnabled
@@ -276,6 +278,7 @@ class MainActivity : FlutterActivity() {
             putExtra(CallForegroundService.EXTRA_IS_VIDEO, isVideo)
             putExtra(CallForegroundService.EXTRA_IS_MIC_ENABLED, isMicEnabled)
             putExtra(CallForegroundService.EXTRA_IS_CAMERA_ENABLED, isCameraEnabled)
+            putExtra(CallForegroundService.EXTRA_IS_SCREEN_SHARING, isScreenSharing)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent)

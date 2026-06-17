@@ -25,6 +25,7 @@ class CallNotificationService extends GetxService {
     required bool isVideo,
     required bool audioEnabled,
     required bool videoEnabled,
+    required bool isScreenSharing,
   }) async {
     try {
       await _ensureNotificationPermission();
@@ -34,6 +35,7 @@ class CallNotificationService extends GetxService {
         'isVideo': isVideo,
         'audioEnabled': audioEnabled,
         'videoEnabled': videoEnabled,
+        'isScreenSharing': isScreenSharing,
       });
     } on PlatformException catch (e) {
       Get.log('Unable to show call notification: ${e.message}', isError: true);
