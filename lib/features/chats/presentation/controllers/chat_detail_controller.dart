@@ -5,6 +5,7 @@ import 'package:chat_app/services/sync_service.dart';
 import 'package:chat_app/services/storage_service.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:realm/realm.dart';
 import '../../../../core/database/realm_models.dart';
 import '../../domain/repositories/chat_repository.dart';
 import '../../../../services/socket_service.dart';
@@ -20,6 +21,7 @@ class ChatDetailController extends GetxController {
   final RxBool isLoading = true.obs;
   final RxBool isTyping = false.obs;
   final RxBool isRemoteTyping = false.obs;
+  final RxString remoteTypingText = ''.obs;
   final RxBool isSyncing = false.obs;
 
   final RxnString editingMessageId = RxnString(null);
@@ -32,6 +34,8 @@ class ChatDetailController extends GetxController {
   Timer? _typingTimer;
   Timer? _remoteTypingTimer;
   DateTime? _lastTypingEmit;
+  late StreamSubscription<RealmResultsChanges<MessageRealm>>
+  _messageSubscription;
 
   ChatDetailController({required this.remoteUser});
 
@@ -57,19 +61,38 @@ class ChatDetailController extends GetxController {
 
     _loadMessages();
 
+    _messageSubscription = RealmHelper().realm
+        .all<MessageRealm>()
+        .changes
+        .listen((event) {
+          reloadMessagesLocally();
+        });
+
     textController.addListener(_onTextChanged);
 
     ever(Get.find<SyncService>().typingUsers, (Map<String, bool> typingMap) {
+      if (remoteUser.isGroup == true) return;
       if (typingMap[remoteUser.id] == true) {
         isRemoteTyping.value = true;
+        remoteTypingText.value = 'typing...';
         _remoteTypingTimer?.cancel();
         _remoteTypingTimer = Timer(const Duration(seconds: 5), () {
           isRemoteTyping.value = false;
+          remoteTypingText.value = '';
         });
       } else {
         isRemoteTyping.value = false;
+        remoteTypingText.value = '';
         _remoteTypingTimer?.cancel();
       }
+    });
+    ever(Get.find<SyncService>().typingUserIdsByChat, (
+      Map<String, List<String>> typingMap,
+    ) {
+      if (remoteUser.isGroup != true) return;
+      final typingIds = typingMap[remoteUser.id] ?? const <String>[];
+      isRemoteTyping.value = typingIds.isNotEmpty;
+      remoteTypingText.value = _formatGroupTypingText(typingIds);
     });
     _socketService.onUserStatusChanged = (onlineUsersList) {
       Get.log('==== ON USER STATUS CHANGED: $onlineUsersList ====');
@@ -174,6 +197,15 @@ class ChatDetailController extends GetxController {
     return uniqueMsgs;
   }
 
+  String _formatGroupTypingText(List<String> typingIds) {
+    if (typingIds.isEmpty) return '';
+    if (typingIds.length == 1) {
+      final user = getUserById(typingIds.first);
+      return '${user?.userName ?? 'Someone'} is typing...';
+    }
+    return '${typingIds.length} are typing...';
+  }
+
   void editMessage(MessageRealm msg) {
     if (msg.content?.type == 'text' && msg.content?.content != null) {
       editingMessageId.value = msg.id;
@@ -261,6 +293,7 @@ class ChatDetailController extends GetxController {
     scrollController.dispose();
     _typingTimer?.cancel();
     _remoteTypingTimer?.cancel();
+    _messageSubscription.cancel();
 
     super.onClose();
   }

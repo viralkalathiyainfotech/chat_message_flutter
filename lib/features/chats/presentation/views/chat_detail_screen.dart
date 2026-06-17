@@ -100,32 +100,36 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                if (user.isGroup == true)
-                  const Text(
-                    'Tap here for group info',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  )
-                else
-                  Obx(() {
-                    if (controller.isRemoteTyping.value) {
-                      return const Text(
-                        'typing...',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: ColorConstants.primaryBlue,
-                        ),
-                      );
-                    }
+                Obx(() {
+                  if (controller.isRemoteTyping.value) {
                     return Text(
-                      controller.isUserOnline.value ? 'Online' : 'Offline',
-                      style: TextStyle(
+                      controller.remoteTypingText.value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
                         fontSize: 12,
-                        color: controller.isUserOnline.value
-                            ? Colors.green
-                            : Colors.grey,
+                        color: ColorConstants.primaryBlue,
                       ),
                     );
-                  }),
+                  }
+
+                  if (user.isGroup == true) {
+                    return const Text(
+                      'Tap here for group info',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    );
+                  }
+
+                  return Text(
+                    controller.isUserOnline.value ? 'Online' : 'Offline',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: controller.isUserOnline.value
+                          ? Colors.green
+                          : Colors.grey,
+                    ),
+                  );
+                }),
               ],
             ),
           ),
@@ -135,46 +139,50 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         IconButton(
           icon: const Icon(Icons.videocam),
           onPressed: () {
-            List<String>? participants;
-            if (user.isGroup == true && user.membersListJson != null) {
-              try {
-                final List<dynamic> decoded = jsonDecode(user.membersListJson!);
-                participants = decoded.map((e) => e.toString()).toList();
-              } catch (e) {
-                Get.log('Error decoding group members: $e');
-              }
-            }
             Get.find<CallController>().startCall(
               controller.remoteUser.id,
               video: true,
               isGroup: user.isGroup == true,
-              participants: participants,
+              participants: _groupMemberIds(user),
             );
           },
         ),
         IconButton(
           icon: const Icon(Icons.call),
           onPressed: () {
-            List<String>? participants;
-            if (user.isGroup == true && user.membersListJson != null) {
-              try {
-                final List<dynamic> decoded = jsonDecode(user.membersListJson!);
-                participants = decoded.map((e) => e.toString()).toList();
-              } catch (e) {
-                Get.log('Error decoding group members: $e');
-              }
-            }
             Get.find<CallController>().startCall(
               controller.remoteUser.id,
               video: false,
               isGroup: user.isGroup == true,
-              participants: participants,
+              participants: _groupMemberIds(user),
             );
           },
         ),
         IconButton(icon: const Icon(Icons.more_vert), onPressed: () {}),
       ],
     );
+  }
+
+  List<String>? _groupMemberIds(UserRealm user) {
+    if (user.isGroup != true || user.membersListJson == null) return null;
+    try {
+      final decoded = jsonDecode(user.membersListJson!);
+      if (decoded is! List) return null;
+      return decoded
+          .map((member) {
+            if (member is Map) {
+              return (member['_id'] ?? member['id'])?.toString();
+            }
+            return member?.toString();
+          })
+          .whereType<String>()
+          .where((id) => id.isNotEmpty)
+          .toSet()
+          .toList();
+    } catch (e) {
+      Get.log('Error decoding group members: $e', isError: true);
+      return null;
+    }
   }
 
   Widget _buildMessageList(ChatDetailController controller) {

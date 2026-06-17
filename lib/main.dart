@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'core/routes/app_pages.dart';
 import 'core/routes/app_routes.dart';
+import 'features/chats/domain/repositories/chat_repository.dart';
 import 'features/calls/presentation/widgets/call_overlay_host.dart';
 import 'services/storage_service.dart';
 import 'services/connectivity_service.dart';
@@ -31,6 +32,7 @@ void main() async {
   // Initialize Network & Sync
   Get.put(ConnectivityService());
   Get.put(SocketService());
+  Get.put(ChatRepository());
   Get.put(CallService());
   Get.put(CallOverlayService());
   Get.put(CallPipService());

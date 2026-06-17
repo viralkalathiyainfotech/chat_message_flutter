@@ -16,39 +16,40 @@ import 'new_chat_screen.dart';
 class ChatsListScreen extends StatelessWidget {
   ChatsListScreen({super.key});
 
-  final ChatsController controller = Get.put(ChatsController());
+  final ChatsController controller = Get.isRegistered<ChatsController>()
+      ? Get.find<ChatsController>()
+      : Get.put(ChatsController());
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('Chats', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Chats',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         elevation: 5,
         shadowColor: Colors.black.withValues(alpha: .5),
         surfaceTintColor: Colors.transparent,
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         actions: [
-          Obx(() => controller.isSyncing.value
-              ? const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16.0),
-                  child: Center(
-                    child: SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+          Obx(
+            () => controller.isSyncing.value
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16.0),
+                    child: Center(
+                      child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
                     ),
-                  ),
-                )
-              : const SizedBox.shrink()),
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {},
+                  )
+                : const SizedBox.shrink(),
           ),
-          IconButton(
-            icon: const Icon(Icons.more_vert),
-            onPressed: () {},
-          ),
+          IconButton(icon: const Icon(Icons.search), onPressed: () {}),
+          IconButton(icon: const Icon(Icons.more_vert), onPressed: () {}),
         ],
       ),
       body: Obx(() {
@@ -69,7 +70,8 @@ class ChatsListScreen extends StatelessWidget {
         return ListView.separated(
           padding: const EdgeInsets.symmetric(vertical: 8),
           itemCount: controller.recentChats.length,
-          separatorBuilder: (context, index) => const Divider(height: 1, indent: 76),
+          separatorBuilder: (context, index) =>
+              const Divider(height: 1, indent: 76),
           itemBuilder: (context, index) {
             final UserRealm chat = controller.recentChats[index];
             return StaggeredListItem(
@@ -104,10 +106,14 @@ class ChatsListScreen extends StatelessWidget {
             backgroundImage: chat.photo != null
                 ? CachedNetworkImageProvider(chat.photo!)
                 : null,
-            child: chat.photo == null ? Icon(chat.isGroup == true ? Icons.group : Icons.person) : null,
+            child: chat.photo == null
+                ? Icon(chat.isGroup == true ? Icons.group : Icons.person)
+                : null,
           ),
           Obx(() {
-            final isOnline = Get.find<SocketService>().onlineUsers.contains(chat.id);
+            final isOnline = Get.find<SocketService>().onlineUsers.contains(
+              chat.id,
+            );
             if (isOnline) {
               return Positioned(
                 right: 0,
@@ -122,7 +128,10 @@ class ChatsListScreen extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: Colors.green,
                       shape: BoxShape.circle,
-                      border: Border.all(color: Theme.of(context).scaffoldBackgroundColor, width: 2),
+                      border: Border.all(
+                        color: Theme.of(context).scaffoldBackgroundColor,
+                        width: 2,
+                      ),
                     ),
                   ),
                 ),
@@ -139,10 +148,12 @@ class ChatsListScreen extends StatelessWidget {
       subtitle: Obx(() {
         // Access updateTrigger to force refresh of lastMessage and unreadCount
         controller.updateTrigger.value;
-        
-        MessageRealm? lastMessage = RealmHelper().getLastMessageForUser(chat.id);
+
+        MessageRealm? lastMessage = RealmHelper().getLastMessageForUser(
+          chat.id,
+        );
         String subtitleText = 'Tap to chat...';
-        
+
         if (lastMessage != null) {
           final content = lastMessage.content;
           if (content?.type == 'text') {
@@ -156,11 +167,19 @@ class ChatsListScreen extends StatelessWidget {
           }
         }
 
-        final isTyping = Get.find<SyncService>().typingUsers[chat.id] == true;
-        if (isTyping) {
-          return const Text(
-            'typing...',
-            style: TextStyle(color: ColorConstants.primaryBlue, fontWeight: FontWeight.w500),
+        final syncService = Get.find<SyncService>();
+        final typingText = chat.isGroup == true
+            ? _formatGroupTypingText(syncService.typingUserIdsByChat[chat.id])
+            : (syncService.typingUsers[chat.id] == true ? 'typing...' : '');
+        if (typingText.isNotEmpty) {
+          return Text(
+            typingText,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: ColorConstants.primaryBlue,
+              fontWeight: FontWeight.w500,
+            ),
           );
         }
         return Text(
@@ -173,8 +192,10 @@ class ChatsListScreen extends StatelessWidget {
       trailing: Obx(() {
         controller.updateTrigger.value;
         int unreadCount = RealmHelper().getUnreadCountForUser(chat.id);
-        
-        MessageRealm? lastMessage = RealmHelper().getLastMessageForUser(chat.id);
+
+        MessageRealm? lastMessage = RealmHelper().getLastMessageForUser(
+          chat.id,
+        );
         String timeText = '';
         if (lastMessage != null) {
           timeText = _formatDate(lastMessage.createdAt);
@@ -217,10 +238,11 @@ class ChatsListScreen extends StatelessWidget {
   String _formatDate(DateTime date) {
     final now = DateTime.now();
     final difference = now.difference(date);
-    
+
     if (difference.inDays == 0 && now.day == date.day) {
       return '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
-    } else if (difference.inDays == 1 || (difference.inDays == 0 && now.day != date.day)) {
+    } else if (difference.inDays == 1 ||
+        (difference.inDays == 0 && now.day != date.day)) {
       return 'Yesterday';
     } else if (difference.inDays < 7) {
       const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -228,5 +250,14 @@ class ChatsListScreen extends StatelessWidget {
     } else {
       return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
     }
+  }
+
+  String _formatGroupTypingText(List<String>? typingIds) {
+    if (typingIds == null || typingIds.isEmpty) return '';
+    if (typingIds.length == 1) {
+      final user = RealmHelper().realm.find<UserRealm>(typingIds.first);
+      return '${user?.userName ?? 'Someone'} is typing...';
+    }
+    return '${typingIds.length} are typing...';
   }
 }

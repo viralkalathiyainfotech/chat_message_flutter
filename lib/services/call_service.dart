@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:chat_app/core/database/realm_helper.dart';
+import 'package:chat_app/core/database/realm_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -37,7 +41,7 @@ class CallService extends GetxService {
       <String, RTCVideoRenderer>{}.obs;
   final RxMap<String, MediaStream> remoteStreams = <String, MediaStream>{}.obs;
   final RxList<CallAudioOutput> audioOutputs = <CallAudioOutput>[].obs;
-  final RxString selectedAudioOutputId = 'speaker'.obs;
+  final RxString selectedAudioOutputId = CallAudioOutput.speakerId.obs;
 
   String? currentRoomId;
   String? remoteUserId; // for 1-to-1, or groupId for group calls
@@ -68,10 +72,13 @@ class CallService extends GetxService {
       isVideoCall = data['type'] == 'video';
       isGroupCall = data['isGroupCall'] == true;
       if (data['participants'] != null) {
-        callParticipants = Set<String>.from(
-          data['participants'].map((e) => e.toString()),
-        );
+        callParticipants = _normalizeParticipantIds(data['participants']);
       }
+      if (isGroupCall && remoteUserId != null) {
+        callParticipants.addAll(_memberIdsFromGroup(remoteUserId!));
+      }
+      final currentUserId = _storageService.getUserId();
+      if (currentUserId != null) callParticipants.add(currentUserId);
       isReceivingCall.value = true;
     };
 
@@ -198,15 +205,19 @@ class CallService extends GetxService {
     isVideoCall = video;
     isGroupCall = isGroup;
 
-    callParticipants = participants != null
-        ? Set<String>.from(participants)
-        : {_storageService.getUserId()!, targetId};
+    final currentUserId = _storageService.getUserId()!;
+    callParticipants = _participantsForCall(
+      targetId: targetId,
+      isGroup: isGroup,
+      participants: participants,
+      currentUserId: currentUserId,
+    );
 
     await _initLocalStream(video: video);
 
     // In a Mesh, the caller creates an offer for every participant
     final otherMembers = callParticipants
-        .where((id) => id != _storageService.getUserId())
+        .where((id) => id != currentUserId && (!isGroupCall || id != targetId))
         .toList();
 
     for (var memberId in otherMembers) {
@@ -214,6 +225,61 @@ class CallService extends GetxService {
     }
 
     return true;
+  }
+
+  Set<String> _participantsForCall({
+    required String targetId,
+    required bool isGroup,
+    required List<String>? participants,
+    required String currentUserId,
+  }) {
+    final ids = <String>{currentUserId};
+
+    if (isGroup) {
+      ids.addAll(_normalizeParticipantIds(participants));
+      ids.addAll(_memberIdsFromGroup(targetId));
+    } else {
+      ids.add(targetId);
+    }
+
+    if (isGroup && ids.length <= 1) {
+      Get.snackbar(
+        'Group call',
+        'No group members found for this call.',
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+    }
+
+    return ids;
+  }
+
+  Set<String> _memberIdsFromGroup(String groupId) {
+    final group = RealmHelper().realm.find<UserRealm>(groupId);
+    if (group?.membersListJson == null) return {};
+
+    try {
+      final decoded = jsonDecode(group!.membersListJson!);
+      if (decoded is! List) return {};
+      return _normalizeParticipantIds(decoded);
+    } catch (e) {
+      Get.log('Error decoding group call members: $e', isError: true);
+      return {};
+    }
+  }
+
+  Set<String> _normalizeParticipantIds(Iterable<dynamic>? participants) {
+    if (participants == null) return {};
+    return participants
+        .map((participant) {
+          if (participant is Map) {
+            return (participant['_id'] ?? participant['id'])?.toString();
+          }
+          return participant?.toString();
+        })
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet();
   }
 
   Future<void> acceptCall() async {
@@ -234,11 +300,15 @@ class CallService extends GetxService {
 
     // Connect to other existing participants (if group call)
     if (isGroupCall && incomingCallData!['participants'] != null) {
-      final others = List<String>.from(
+      final others = _normalizeParticipantIds(
         incomingCallData!['participants'],
       ).where((id) => id != _storageService.getUserId() && id != callerId);
       for (var pId in others) {
-        await _createPeerConnection(pId, isInitiator: true);
+        await _createPeerConnection(
+          pId,
+          isInitiator: true,
+          sendOfferAsCallSignal: true,
+        );
       }
     }
   }
@@ -264,70 +334,90 @@ class CallService extends GetxService {
       localRenderer.value.srcObject = localStream;
       hasLocalStream.value = true;
       localRenderer.refresh();
-      if (video) {
-        await refreshAudioOutputs();
-        await selectAudioOutput('speaker');
-      }
+      await selectPreferredAudioOutput();
     } catch (e) {
       Get.log("Error getting user media: $e", isError: true);
     }
   }
 
   Future<void> refreshAudioOutputs() async {
-    if (!isVideoCall) return;
-
     try {
       final devices = await Helper.audiooutputs;
-      final outputs = <CallAudioOutput>[
-        const CallAudioOutput(
-          id: 'speaker',
-          label: 'Main speaker',
-          icon: Icons.volume_up,
-        ),
-      ];
+      final outputs = <CallAudioOutput>[];
 
       for (final device in devices) {
         final output = CallAudioOutput.fromMediaDevice(device);
-        if (output == null || output.id == 'speaker') continue;
+        if (output == null || output.isBuiltIn) continue;
         if (outputs.any((item) => item.id == output.id)) continue;
         outputs.add(output);
       }
 
+      if (!isVideoCall) {
+        outputs.add(CallAudioOutput.earpiece);
+      }
+      outputs.add(CallAudioOutput.mainSpeaker);
+
       audioOutputs.assignAll(outputs);
       if (!outputs.any((output) => output.id == selectedAudioOutputId.value)) {
-        selectedAudioOutputId.value = 'speaker';
+        selectedAudioOutputId.value = _preferredAudioOutputId(outputs);
       }
     } catch (e) {
       Get.log('Unable to refresh audio outputs: $e', isError: true);
-      audioOutputs.assignAll(const [
-        CallAudioOutput(
-          id: 'speaker',
-          label: 'Main speaker',
-          icon: Icons.volume_up,
-        ),
-      ]);
+      final fallbackOutputs = isVideoCall
+          ? const [CallAudioOutput.mainSpeaker]
+          : const [CallAudioOutput.earpiece, CallAudioOutput.mainSpeaker];
+      audioOutputs.assignAll(fallbackOutputs);
+      selectedAudioOutputId.value = _preferredAudioOutputId(fallbackOutputs);
     }
   }
 
-  Future<void> selectAudioOutput(String outputId) async {
-    if (!isVideoCall) return;
+  Future<void> selectPreferredAudioOutput() async {
+    await refreshAudioOutputs();
+    await selectAudioOutput(_preferredAudioOutputId(audioOutputs));
+  }
 
+  Future<void> selectAudioOutput(String outputId) async {
     try {
-      await Helper.selectAudioOutput(outputId);
-      for (final renderer in remoteRenderers.values) {
-        await renderer.audioOutput(outputId);
+      if (outputId == CallAudioOutput.secondarySpeakerId) {
+        await Helper.selectAudioOutput(CallAudioOutput.secondarySpeakerId);
+      } else if (outputId == CallAudioOutput.speakerId) {
+        await Helper.setSpeakerphoneOn(true);
+      } else {
+        await Helper.selectAudioOutput(outputId);
       }
-      await localRenderer.value.audioOutput(outputId);
+      if (outputId != CallAudioOutput.secondarySpeakerId &&
+          outputId != CallAudioOutput.speakerId) {
+        for (final renderer in remoteRenderers.values) {
+          await renderer.audioOutput(outputId);
+        }
+        await localRenderer.value.audioOutput(outputId);
+      }
       selectedAudioOutputId.value = outputId;
     } catch (e) {
       Get.log('Unable to select audio output $outputId: $e', isError: true);
     }
   }
 
+  String _preferredAudioOutputId(Iterable<CallAudioOutput> outputs) {
+    for (final output in outputs) {
+      if (!output.isBuiltIn) return output.id;
+    }
+
+    if (!isVideoCall &&
+        outputs.any(
+          (output) => output.id == CallAudioOutput.secondarySpeakerId,
+        )) {
+      return CallAudioOutput.secondarySpeakerId;
+    }
+
+    return CallAudioOutput.speakerId;
+  }
+
   Future<void> _createPeerConnection(
     String peerId, {
     required bool isInitiator,
     dynamic offer,
+    bool sendOfferAsCallSignal = false,
   }) async {
     if (peerConnections.containsKey(peerId)) return;
 
@@ -391,16 +481,26 @@ class CallService extends GetxService {
       final pcOffer = await pc.createOffer();
       await pc.setLocalDescription(pcOffer);
 
-      _socketService.emitCallRequest({
-        'fromEmail': _storageService.getUserId(),
-        'toEmail': peerId,
-        'signal': {'type': pcOffer.type, 'sdp': pcOffer.sdp},
-        'type': isVideoCall ? 'video' : 'audio',
-        'isGroupCall': isGroupCall,
-        'participants': callParticipants.toList(),
-        'groupId': isGroupCall ? remoteUserId : null,
-        'roomId': currentRoomId,
-      });
+      final offerSignal = {'type': pcOffer.type, 'sdp': pcOffer.sdp};
+      if (sendOfferAsCallSignal) {
+        _socketService.emitCallSignal({
+          'signal': offerSignal,
+          'from': _storageService.getUserId(),
+          'to': peerId,
+          'roomId': currentRoomId,
+        });
+      } else {
+        _socketService.emitCallRequest({
+          'fromEmail': _storageService.getUserId(),
+          'toEmail': peerId,
+          'signal': offerSignal,
+          'type': isVideoCall ? 'video' : 'audio',
+          'isGroupCall': isGroupCall,
+          'participants': callParticipants.toList(),
+          'groupId': isGroupCall ? remoteUserId : null,
+          'roomId': currentRoomId,
+        });
+      }
     } else if (offer != null) {
       if (offer['type'] == 'offer') {
         final didApplyOffer = await _applyRemoteDescription(peerId, offer);
@@ -410,8 +510,8 @@ class CallService extends GetxService {
 
         _socketService.emitCallAccept({
           'signal': {'type': answer.type, 'sdp': answer.sdp},
-          'fromEmail': _storageService.getUserId(),
-          'toEmail': peerId,
+          'fromEmail': peerId,
+          'toEmail': _storageService.getUserId(),
           'participants': callParticipants.toList(),
           'roomId': currentRoomId,
         });
@@ -789,7 +889,7 @@ class CallService extends GetxService {
         'isScreenSharing': active,
       });
       if (active) {
-        await Future<void>.delayed(const Duration(milliseconds: 300));
+        await Future<void>.delayed(const Duration(milliseconds: 1000));
       }
     } on PlatformException catch (e) {
       Get.log(
@@ -812,7 +912,7 @@ class CallService extends GetxService {
     isGroupCall = false;
     callParticipants.clear();
     audioOutputs.clear();
-    selectedAudioOutputId.value = 'speaker';
+    selectedAudioOutputId.value = CallAudioOutput.speakerId;
 
     localStream?.getTracks().forEach((track) => track.stop());
     localStream?.dispose();
@@ -861,11 +961,30 @@ class CallAudioOutput {
     required this.id,
     required this.label,
     required this.icon,
+    this.isBuiltIn = false,
   });
+
+  static const secondarySpeakerId = 'earpiece';
+  static const speakerId = 'speaker';
+
+  static const earpiece = CallAudioOutput(
+    id: secondarySpeakerId,
+    label: 'Earpiece',
+    icon: Icons.phone_in_talk,
+    isBuiltIn: true,
+  );
+
+  static const mainSpeaker = CallAudioOutput(
+    id: speakerId,
+    label: 'Main speaker',
+    icon: Icons.volume_up,
+    isBuiltIn: true,
+  );
 
   final String id;
   final String label;
   final IconData icon;
+  final bool isBuiltIn;
 
   static CallAudioOutput? fromMediaDevice(MediaDeviceInfo device) {
     final id = device.deviceId;
@@ -873,15 +992,11 @@ class CallAudioOutput {
     final normalizedLabel = device.label.toLowerCase();
 
     if (normalizedId == 'earpiece' || normalizedLabel.contains('earpiece')) {
-      return null;
+      return earpiece;
     }
 
     if (normalizedId == 'speaker' || normalizedLabel.contains('speaker')) {
-      return const CallAudioOutput(
-        id: 'speaker',
-        label: 'Main speaker',
-        icon: Icons.volume_up,
-      );
+      return mainSpeaker;
     }
 
     if (normalizedId == 'bluetooth' || normalizedLabel.contains('bluetooth')) {

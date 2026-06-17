@@ -70,8 +70,13 @@ class ChatRepository {
 
                 return MessageRealm(
                   msgData['_id']?.toString() ?? '',
-                  msgData['sender']?.toString() ?? '',
-                  msgData['receiver']?.toString() ?? '',
+                  _idFromPayload(msgData['senderId'] ?? msgData['sender']),
+                  _idFromPayload(
+                    msgData['groupId'] ??
+                        msgData['group'] ??
+                        msgData['receiverId'] ??
+                        msgData['receiver'],
+                  ),
                   msgData['status']?.toString() ?? 'sent',
                   msgData['edited'] == true,
                   DateTime.tryParse(msgData['createdAt']?.toString() ?? '') ??
@@ -249,8 +254,13 @@ class ChatRepository {
 
             return MessageRealm(
               data['_id']?.toString() ?? '',
-              data['sender']?.toString() ?? '',
-              data['receiver']?.toString() ?? '',
+              _idFromPayload(data['senderId'] ?? data['sender']),
+              _idFromPayload(
+                data['groupId'] ??
+                    data['group'] ??
+                    data['receiverId'] ??
+                    data['receiver'],
+              ),
               data['status']?.toString() ?? 'sent',
               data['edited'] == true,
               DateTime.tryParse(data['createdAt']?.toString() ?? '') ??
@@ -277,6 +287,36 @@ class ChatRepository {
   Future<void> saveIncomingMessage(Map<String, dynamic> data) async {
     try {
       final contentData = data['content'] ?? {};
+      final senderRaw = data['senderId'] ?? data['sender'];
+      final receiverRaw = data['receiverId'] ?? data['receiver'];
+      final groupRaw = data['groupId'] ?? data['group'];
+      final senderId = _idFromPayload(senderRaw);
+      final receiverId = _idFromPayload(receiverRaw);
+      final groupId = _idFromPayload(groupRaw);
+      final myId = Get.find<StorageService>().getUserId();
+
+      if (senderId.isEmpty || (receiverId.isEmpty && groupId.isEmpty)) {
+        Get.log(
+          'Skipping incoming message with missing sender/receiver: $data',
+        );
+        return;
+      }
+
+      final isGroupMessage =
+          groupId.isNotEmpty || (receiverId.isNotEmpty && receiverId != myId);
+      final chatId = isGroupMessage
+          ? (groupId.isNotEmpty ? groupId : receiverId)
+          : senderId;
+      _ensureChatUser(
+        chatId,
+        source: groupRaw ?? (isGroupMessage ? receiverRaw : senderRaw),
+        isGroup: isGroupMessage,
+      );
+
+      if (senderId != myId) {
+        _ensureChatUser(senderId, source: senderRaw, isGroup: false);
+      }
+
       final contentRealm = MessageContentRealm(
         contentData['type'] ?? 'text',
         content: contentData['content'],
@@ -302,13 +342,15 @@ class ChatRepository {
       }
 
       final newMsg = MessageRealm(
-        data['_id'] ?? data['messageId'] ?? _uuid.v4(),
-        data['sender'] ?? data['senderId'] ?? '',
-        data['receiver'] ?? data['receiverId'] ?? '',
-        data['status'] ?? 'delivered',
+        data['_id']?.toString() ?? data['messageId']?.toString() ?? _uuid.v4(),
+        senderId,
+        isGroupMessage ? chatId : receiverId,
+        data['status']?.toString() ?? (senderId == myId ? 'sent' : 'delivered'),
         data['edited'] ?? false,
-        DateTime.tryParse(data['createdAt'] ?? '') ?? DateTime.now(),
-        DateTime.tryParse(data['updatedAt'] ?? '') ?? DateTime.now(),
+        DateTime.tryParse(data['createdAt']?.toString() ?? '') ??
+            DateTime.now(),
+        DateTime.tryParse(data['updatedAt']?.toString() ?? '') ??
+            DateTime.now(),
         false,
         content: contentRealm,
         reactions: parsedReactions,
@@ -318,6 +360,69 @@ class ChatRepository {
     } catch (e) {
       Get.log('Error saving incoming message: $e', isError: true);
     }
+  }
+
+  String _idFromPayload(dynamic value) {
+    if (value == null) return '';
+    if (value is Map) {
+      return (value['_id'] ?? value['id'] ?? '').toString();
+    }
+    return value.toString();
+  }
+
+  void _ensureChatUser(
+    String userId, {
+    required dynamic source,
+    required bool isGroup,
+  }) {
+    final existing = _realmHelper.realm.find<UserRealm>(userId);
+    final sourceMap = source is Map ? source : const {};
+
+    String? stringField(String key) {
+      final value = sourceMap[key];
+      if (value == null) return null;
+      final text = value.toString();
+      return text.isEmpty ? null : text;
+    }
+
+    if (existing == null) {
+      _realmHelper.saveUsers([
+        UserRealm(
+          userId,
+          userName:
+              stringField('userName') ??
+              stringField('name') ??
+              stringField('email') ??
+              (isGroup ? 'Group' : 'Unknown'),
+          email: stringField('email'),
+          photo: stringField('photo'),
+          mobileNumber: stringField('mobileNumber'),
+          isGroup: isGroup,
+          membersListJson: sourceMap['members'] != null
+              ? jsonEncode(sourceMap['members'])
+              : null,
+        ),
+      ]);
+      return;
+    }
+
+    _realmHelper.realm.write(() {
+      existing.userName ??=
+          stringField('userName') ??
+          stringField('name') ??
+          stringField('email');
+      existing.email ??= stringField('email');
+      existing.photo ??= stringField('photo');
+      existing.mobileNumber ??= stringField('mobileNumber');
+      if (isGroup) {
+        existing.isGroup = true;
+      } else {
+        existing.isGroup ??= false;
+      }
+      if (existing.membersListJson == null && sourceMap['members'] != null) {
+        existing.membersListJson = jsonEncode(sourceMap['members']);
+      }
+    });
   }
 
   Future<Map<String, String>> uploadAttachment({
@@ -369,6 +474,8 @@ class ChatRepository {
     final now = DateTime.now();
 
     final userId = Get.find<StorageService>().getUserId() ?? 'myUserId';
+    final isGroupMessage =
+        _realmHelper.realm.find<UserRealm>(receiverId)?.isGroup == true;
 
     // Encrypt the content if it's text
     String finalContent = content;
@@ -392,7 +499,7 @@ class ChatRepository {
       false,
       now,
       now,
-      true, // isPending
+      !_connectivity.isOnline.value || !isGroupMessage,
       content: contentRealm,
     );
     _realmHelper.saveMessage(localMessage);
@@ -433,16 +540,29 @@ class ChatRepository {
     // Logic to send message through socket
     Get.log('Sending message to $receiverId');
     final userId = Get.find<StorageService>().getUserId() ?? 'myUserId';
+    final isGroupMessage =
+        _realmHelper.realm.find<UserRealm>(receiverId)?.isGroup == true;
+    final contentData = {
+      'type': type,
+      'content': content,
+      'fileUrl': ?fileUrl,
+      'fileType': ?fileType,
+      'size': ?size,
+    };
+
+    if (isGroupMessage) {
+      _socketService.emitGroupMessage({
+        'senderId': userId,
+        'groupId': receiverId,
+        'content': contentData,
+      });
+      return;
+    }
+
     _socketService.emitPrivateMessage({
       'senderId': userId,
       'receiverId': receiverId,
-      'content': {
-        'type': type,
-        'content': content,
-        'fileUrl': ?fileUrl,
-        'fileType': ?fileType,
-        'size': ?size,
-      },
+      'content': contentData,
       'replyTo': null,
       'isBlocked': false,
       'tempMessageId': tempId,

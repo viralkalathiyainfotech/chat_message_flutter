@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 
 class CallForegroundService : Service() {
     private lateinit var notificationHelper: CallNotificationHelper
@@ -52,7 +53,17 @@ class CallForegroundService : Service() {
             if (isScreenSharing) {
                 serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             }
-            startForeground(CallNotificationHelper.CALL_NOTIFICATION_ID, notification, serviceType)
+            try {
+                startForeground(CallNotificationHelper.CALL_NOTIFICATION_ID, notification, serviceType)
+            } catch (e: SecurityException) {
+                if (!isScreenSharing) throw e
+                Log.w(TAG, "Retrying foreground service as mediaProjection only", e)
+                startForeground(
+                    CallNotificationHelper.CALL_NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
+                )
+            }
         } else {
             startForeground(CallNotificationHelper.CALL_NOTIFICATION_ID, notification)
         }
@@ -67,5 +78,6 @@ class CallForegroundService : Service() {
         const val EXTRA_IS_MIC_ENABLED = "isMicEnabled"
         const val EXTRA_IS_CAMERA_ENABLED = "isCameraEnabled"
         const val EXTRA_IS_SCREEN_SHARING = "isScreenSharing"
+        private const val TAG = "CallForegroundService"
     }
 }

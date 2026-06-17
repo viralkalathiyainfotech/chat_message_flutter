@@ -197,6 +197,11 @@ class SocketService extends GetxService {
       if (map != null && onReceiveMessage != null) onReceiveMessage!(map);
     });
 
+    socket?.on('receive-group', (data) {
+      final map = _safeCast(data);
+      if (map != null && onReceiveMessage != null) onReceiveMessage!(map);
+    });
+
     socket?.on('message-sent-status', (data) {
       final map = _safeCast(data);
       if (map != null && onMessageSentStatus != null) onMessageSentStatus!(map);
@@ -285,6 +290,12 @@ class SocketService extends GetxService {
   void emitPrivateMessage(Map<String, dynamic> messageData) {
     if (isConnected.value) {
       socket?.emit('private-message', messageData);
+    }
+  }
+
+  void emitGroupMessage(Map<String, dynamic> messageData) {
+    if (isConnected.value) {
+      socket?.emit('group-message', messageData);
     }
   }
 

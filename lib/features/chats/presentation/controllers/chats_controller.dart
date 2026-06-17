@@ -6,7 +6,7 @@ import '../../../../core/database/realm_helper.dart';
 import '../../domain/repositories/chat_repository.dart';
 
 class ChatsController extends GetxController {
-  final ChatRepository _chatRepository = Get.put(ChatRepository());
+  final ChatRepository _chatRepository = Get.find<ChatRepository>();
   final RxList<UserRealm> recentChats = <UserRealm>[].obs;
   final RxBool isLoading = true.obs;
   final RxBool isSyncing = false.obs;
@@ -60,6 +60,14 @@ class ChatsController extends GetxController {
     _syncChats();
   }
 
+  Future<void> reloadLocalChats() async {
+    final localChats = await _chatRepository.getChatList(
+      fetchFromNetwork: false,
+    );
+    recentChats.assignAll(localChats);
+    _sortAndUpdateChats();
+  }
+
   Future<void> _syncChats() async {
     isSyncing.value = true;
     final syncedChats = await _chatRepository.getChatList(
@@ -71,7 +79,10 @@ class ChatsController extends GetxController {
   }
 
   void _sortAndUpdateChats() {
-    if (recentChats.isEmpty) return;
+    if (recentChats.isEmpty) {
+      updateTrigger.value++;
+      return;
+    }
 
     final chats = List<UserRealm>.from(recentChats);
     chats.sort((a, b) {
