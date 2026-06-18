@@ -30,3 +30,12 @@ class UpdateProfileInfoUseCase {
     return repository.updateProfileInfo(userName: userName, bio: bio, photo: photo);
   }
 }
+
+class GetCurrentUserProfileUseCase {
+  final AuthRepository repository;
+  GetCurrentUserProfileUseCase(this.repository);
+
+  Future<Either<Failure, User>> call() {
+    return repository.getCurrentUserProfile();
+  }
+}

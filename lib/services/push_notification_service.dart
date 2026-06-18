@@ -72,14 +72,15 @@ class PushNotificationService extends GetxService {
 
   void _handleOpenedMessage(RemoteMessage message) {
     final data = message.data;
+    final isGroup = data['is_group'] == 'true' || data['is_group'] == true;
     if (Get.isRegistered<NotificationNavigationService>()) {
       Get.find<NotificationNavigationService>().openChat({
-        'chatId': data['chat_id'],
+        'chatId': isGroup ? data['chat_id'] : data['sender_id'],
         'messageId': data['message_id'],
         'senderId': data['sender_id'],
         'senderName': data['sender_name'],
         'chatName': data['chat_name'],
-        'isGroup': data['is_group'] == 'true',
+        'isGroup': isGroup,
       });
     }
   }

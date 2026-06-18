@@ -25,6 +25,7 @@ import 'services/message_sync_service.dart';
 import 'services/notification_navigation_service.dart';
 import 'services/push_notification_service.dart';
 import 'services/receipt_service.dart';
+import 'services/session_privacy_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,6 +42,7 @@ void main() async {
   Get.put(ConnectivityService());
   Get.put(SocketService());
   Get.put(ChatRepository());
+  Get.put(SessionPrivacyService());
   Get.put(ReceiptService());
   Get.put(NotificationNavigationService());
   Get.put(ChatNotificationService());

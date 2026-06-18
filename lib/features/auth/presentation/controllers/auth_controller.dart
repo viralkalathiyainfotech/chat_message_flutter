@@ -4,16 +4,19 @@ import '../../domain/usecases/auth_usecases.dart';
 import '../../../../core/routes/app_routes.dart';
 import 'package:flutter/material.dart';
 import '../../../../services/socket_service.dart';
+import '../../domain/entities/user.dart';
 
 class AuthController extends GetxController {
   final SendOtpUseCase sendOtpUseCase;
   final VerifyOtpUseCase verifyOtpUseCase;
   final UpdateProfileInfoUseCase updateProfileUseCase;
+  final GetCurrentUserProfileUseCase getCurrentUserProfileUseCase;
 
   AuthController({
     required this.sendOtpUseCase,
     required this.verifyOtpUseCase,
     required this.updateProfileUseCase,
+    required this.getCurrentUserProfileUseCase,
   });
 
   var isLoading = false.obs;
@@ -30,8 +33,23 @@ class AuthController extends GetxController {
   final bioController = TextEditingController();
   var selectedImage = Rx<XFile?>(null);
   var existingPhotoUrl = ''.obs;
+  var isProfileLoading = false.obs;
 
   final ImagePicker _picker = ImagePicker();
+
+  Future<void> loadLoggedInProfile() async {
+    isProfileLoading.value = true;
+
+    final result = await getCurrentUserProfileUseCase();
+
+    isProfileLoading.value = false;
+    result.fold(
+      (failure) {
+        Get.log('Could not load existing profile info: ${failure.message}');
+      },
+      _populateProfileFields,
+    );
+  }
 
   Future<void> sendOtp() async {
     if (phoneController.text.isEmpty) {
@@ -65,10 +83,7 @@ class AuthController extends GetxController {
       Get.snackbar('Success', 'OTP verified');
       await Get.find<SocketService>().ensureConnected();
 
-      // Populate existing profile details if any
-      userNameController.text = user.userName ?? '';
-      bioController.text = user.bio ?? '';
-      existingPhotoUrl.value = user.profilePhoto ?? '';
+      _populateProfileFields(user);
 
       // As requested by user: every time on login the profile update is required
       Get.offAllNamed(AppRoutes.profileInfo);
@@ -99,7 +114,15 @@ class AuthController extends GetxController {
     isLoading.value = false;
 
     result.fold((failure) => Get.snackbar('Error', failure.message), (user) {
+      _populateProfileFields(user);
       Get.offAllNamed(AppRoutes.home);
     });
+  }
+
+  void _populateProfileFields(User user) {
+    userNameController.text = user.userName ?? '';
+    bioController.text = user.bio ?? '';
+    existingPhotoUrl.value = user.profilePhoto ?? '';
+    selectedImage.value = null;
   }
 }

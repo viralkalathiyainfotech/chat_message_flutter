@@ -13,6 +13,15 @@ class StorageService extends GetxService {
   static const String _tokenKey = 'auth_token';
   static const String _refreshTokenKey = 'refresh_token';
   static const String _isDarkModeKey = 'is_dark_mode';
+  static const String _userIdKey = 'user_id';
+  static const List<String> _userScopedKeys = [
+    _tokenKey,
+    _refreshTokenKey,
+    _userIdKey,
+    'last_synced_message_event_id',
+    'delivered_message_ids',
+    'pending_delivered_message_ids',
+  ];
 
   Future<void> saveTokens({required String token, required String refreshToken}) async {
     await _prefs.setString(_tokenKey, token);
@@ -25,7 +34,7 @@ class StorageService extends GetxService {
   String? getToken() => token;
   
   String? getUserId() {
-    String? id = _prefs.getString('user_id');
+    String? id = _prefs.getString(_userIdKey);
     if (id == null && token != null) {
       try {
         final parts = token!.split('.');
@@ -36,7 +45,7 @@ class StorageService extends GetxService {
           final map = jsonDecode(decoded);
           id = map['id'] ?? map['_id'];
           if (id != null) {
-            _prefs.setString('user_id', id);
+            _prefs.setString(_userIdKey, id);
           }
         }
       } catch (e) {
@@ -48,10 +57,18 @@ class StorageService extends GetxService {
   
   String? getString(String key) => _prefs.getString(key);
   Future<void> saveString(String key, String value) async => await _prefs.setString(key, value);
+  Future<void> remove(String key) async => await _prefs.remove(key);
 
   Future<void> clearTokens() async {
     await _prefs.remove(_tokenKey);
     await _prefs.remove(_refreshTokenKey);
+    await _prefs.remove(_userIdKey);
+  }
+
+  Future<void> clearUserScopedPreferences() async {
+    for (final key in _userScopedKeys) {
+      await _prefs.remove(key);
+    }
   }
 
   bool get isLoggedIn => token != null;

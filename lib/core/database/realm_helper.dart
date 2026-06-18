@@ -239,6 +239,15 @@ class RealmHelper {
     });
   }
 
+  void clearUserScopedData() {
+    _realm.write(() {
+      _realm.deleteAll<MessageRealm>();
+      _realm.deleteAll<UserRealm>();
+      _realm.deleteAll<OfflineQueueRealm>();
+      _realm.deleteAll<LocalContactRealm>();
+    });
+  }
+
   // --- Local Contacts ---
   void saveLocalContacts(List<LocalContactRealm> contacts) {
     _realm.write(() {

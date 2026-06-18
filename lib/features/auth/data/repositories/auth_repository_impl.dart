@@ -6,6 +6,7 @@ import '../../domain/repositories/auth_repository.dart';
 import '../datasources/auth_remote_data_source.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../../services/storage_service.dart';
+import '../../../../services/session_privacy_service.dart';
 import 'package:get/get.dart';
 
 class AuthRepositoryImpl implements AuthRepository {
@@ -30,6 +31,10 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<Either<Failure, User>> verifyOtp(String mobileNumber, String otp) async {
     try {
       final result = await remoteDataSource.verifyOtp(mobileNumber, otp);
+      final user = result['user'] as User;
+      if (Get.isRegistered<SessionPrivacyService>()) {
+        await Get.find<SessionPrivacyService>().resetForAccountSwitch(user.id);
+      }
       
       // Save tokens
       await storageService.saveTokens(
@@ -37,12 +42,23 @@ class AuthRepositoryImpl implements AuthRepository {
         refreshToken: result['refreshToken'],
       );
       
-      final user = result['user'] as User;
       await storageService.saveString('user_id', user.id);
       
-      return Right(result['user'] as User);
+      return Right(user);
     } on DioException catch (e) {
       return Left(ServerFailure(e.message ?? 'Failed to verify OTP'));
+    } catch (e) {
+      return Left(ServerFailure('An unexpected error occurred'));
+    }
+  }
+
+  @override
+  Future<Either<Failure, User>> getCurrentUserProfile() async {
+    try {
+      final user = await remoteDataSource.getCurrentUserProfile();
+      return Right(user);
+    } on DioException catch (e) {
+      return Left(ServerFailure(e.message ?? 'Failed to load profile info'));
     } catch (e) {
       return Left(ServerFailure('An unexpected error occurred'));
     }

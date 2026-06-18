@@ -10,6 +10,7 @@ import 'storage_service.dart';
 import '../features/chats/domain/repositories/chat_repository.dart';
 import '../features/chats/presentation/controllers/chats_controller.dart';
 import '../features/chats/presentation/controllers/groups_controller.dart';
+import '../utils/encryption_util.dart';
 import 'chat_notification_service.dart';
 import 'message_sync_service.dart';
 import 'receipt_service.dart';
@@ -66,8 +67,14 @@ class SyncService extends GetxService {
         await _receiptService?.markDelivered([messageId]);
       }
 
-      // If the user is currently on the chat detail screen with this exact user, handle read receipts and reload
-      if (activeChatUserId.value != null && chatId == activeChatUserId.value) {
+      final isAppForeground = _notificationService?.isForeground ?? true;
+
+      // Only suppress notifications/read immediately when the app is actually visible.
+      // Android can keep the socket alive briefly after backgrounding, while the chat
+      // route is still mounted and activeChatUserId is still set.
+      if (isAppForeground &&
+          activeChatUserId.value != null &&
+          chatId == activeChatUserId.value) {
         try {
           final detailController = Get.find<ChatDetailController>(
             tag: activeChatUserId.value,
@@ -269,12 +276,13 @@ class SyncService extends GetxService {
     String messageId,
   ) async {
     final notificationService = _notificationService;
-    if (notificationService == null || !notificationService.isForeground) {
+    if (notificationService == null) {
       return;
     }
 
     final content = data['content'];
-    final preview = content is Map ? content['content']?.toString() ?? '' : '';
+    final rawPreview = content is Map ? content['content']?.toString() ?? '' : '';
+    final preview = EncryptionUtil.decrypt(rawPreview);
     final sender = data['sender'] ?? data['senderId'];
     final senderName = sender is Map
         ? (sender['userName'] ?? sender['email'] ?? 'New message').toString()

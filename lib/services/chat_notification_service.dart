@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:ui';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -6,14 +8,17 @@ import 'package:get/get.dart';
 
 import 'background_message_processor.dart';
 import 'notification_navigation_service.dart';
-import 'receipt_service.dart';
 
 @pragma('vm:entry-point')
 void chatNotificationBackgroundHandler(NotificationResponse response) {
-  BackgroundMessageProcessor.handleNotificationAction(
-    actionId: response.actionId,
-    input: response.input,
-    payload: response.payload,
+  WidgetsFlutterBinding.ensureInitialized();
+  DartPluginRegistrant.ensureInitialized();
+  unawaited(
+    BackgroundMessageProcessor.handleNotificationAction(
+      actionId: response.actionId,
+      input: response.input,
+      payload: response.payload,
+    ),
   );
 }
 
@@ -44,8 +49,13 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
               'Reply',
               buttonTitle: 'Send',
               placeholder: 'Message',
+              options: {DarwinNotificationActionOption.foreground},
             ),
-            DarwinNotificationAction.plain(markReadActionId, 'Mark read'),
+            DarwinNotificationAction.plain(
+              markReadActionId,
+              'Mark read',
+              options: {DarwinNotificationActionOption.foreground},
+            ),
           ],
         ),
       ],
@@ -60,7 +70,8 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
 
     await _plugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.requestNotificationsPermission();
 
     _initialized = true;
@@ -85,7 +96,9 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
       'chatName': chatName,
       'isGroup': isGroup,
     });
-    final title = isGroup && chatName != null ? '$chatName: $senderName' : senderName;
+    final title = isGroup && chatName != null
+        ? '$chatName: $senderName'
+        : senderName;
     final notificationId = messageId.hashCode & 0x7fffffff;
 
     const replyInput = AndroidNotificationActionInput(label: 'Message');
@@ -104,18 +117,22 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
           inputs: [replyInput],
           allowGeneratedReplies: true,
           semanticAction: SemanticAction.reply,
-          showsUserInterface: false,
+          showsUserInterface: true,
+          cancelNotification: true,
         ),
         AndroidNotificationAction(
           markReadActionId,
-          'Mark read',
+          'Mark as read',
           semanticAction: SemanticAction.markAsRead,
-          showsUserInterface: false,
+          showsUserInterface: true,
+          cancelNotification: true,
         ),
       ],
     );
 
-    const darwin = DarwinNotificationDetails(categoryIdentifier: 'chat_message');
+    const darwin = DarwinNotificationDetails(
+      categoryIdentifier: 'chat_message',
+    );
 
     await _plugin.show(
       notificationId,
@@ -131,8 +148,13 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
   }
 
   void _handleResponse(NotificationResponse response) {
-    if (response.actionId == replyActionId) {
-      BackgroundMessageProcessor.handleNotificationAction(
+    unawaited(_handleResponseAsync(response));
+  }
+
+  Future<void> _handleResponseAsync(NotificationResponse response) async {
+    if (response.actionId == replyActionId ||
+        response.actionId == markReadActionId) {
+      await BackgroundMessageProcessor.handleNotificationAction(
         actionId: response.actionId,
         input: response.input,
         payload: response.payload,
@@ -140,32 +162,10 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
       return;
     }
 
-    if (response.actionId == markReadActionId) {
-      _markPayloadRead(response.payload);
-      return;
-    }
-
     if (Get.isRegistered<NotificationNavigationService>()) {
       Get.find<NotificationNavigationService>().openChatFromPayload(
         response.payload,
       );
-    }
-  }
-
-  Future<void> _markPayloadRead(String? payload) async {
-    if (payload == null || !Get.isRegistered<ReceiptService>()) return;
-    try {
-      final decoded = jsonDecode(payload) as Map<String, dynamic>;
-      final chatId = decoded['chatId']?.toString();
-      final messageId = decoded['messageId']?.toString();
-      if (chatId == null || messageId == null) return;
-      await Get.find<ReceiptService>().markRead(
-        chatId: chatId,
-        messageIds: [messageId],
-      );
-      await cancelChatNotification(messageId);
-    } catch (e) {
-      Get.log('Failed to mark notification as read: $e', isError: true);
     }
   }
 

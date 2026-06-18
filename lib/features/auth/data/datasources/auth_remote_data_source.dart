@@ -4,15 +4,18 @@ import '../models/user_model.dart';
 import 'package:get/get.dart' hide FormData, MultipartFile;
 import 'package:image_picker/image_picker.dart';
 import '../../../../constants/network_constants.dart';
+import '../../../../services/storage_service.dart';
 
 abstract class AuthRemoteDataSource {
   Future<void> sendOtp(String mobileNumber);
   Future<Map<String, dynamic>> verifyOtp(String mobileNumber, String otp);
+  Future<UserModel> getCurrentUserProfile();
   Future<UserModel> updateProfileInfo({required String userName, required String bio, XFile? photo});
 }
 
 class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
   final ApiService apiService = Get.find<ApiService>();
+  final StorageService storageService = Get.find<StorageService>();
 
   @override
   Future<void> sendOtp(String mobileNumber) async {
@@ -48,6 +51,34 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
         requestOptions: response.requestOptions,
         response: response,
         error: 'Failed to verify OTP',
+      );
+    }
+  }
+
+  @override
+  Future<UserModel> getCurrentUserProfile() async {
+    final userId = storageService.getUserId();
+    if (userId == null || userId.isEmpty) {
+      throw DioException(
+        requestOptions: RequestOptions(path: NetworkConstants.allUsers),
+        error: 'User id not available',
+      );
+    }
+
+    final response = await apiService.dio.get(NetworkConstants.singleUser(userId));
+
+    if (response.statusCode == 200) {
+      final data =
+          response.data['user'] ??
+          response.data['users'] ??
+          response.data['data'] ??
+          response.data;
+      return UserModel.fromJson(data);
+    } else {
+      throw DioException(
+        requestOptions: response.requestOptions,
+        response: response,
+        error: 'Failed to load profile info',
       );
     }
   }

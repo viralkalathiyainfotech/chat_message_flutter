@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:get/get.dart' as getx;
 import '../../services/storage_service.dart';
+import '../../services/session_privacy_service.dart';
 import '../../constants/network_constants.dart';
 
 class AuthInterceptor extends Interceptor {
@@ -25,7 +26,7 @@ class AuthInterceptor extends Interceptor {
     if (err.response?.statusCode == 401 && _storageService.refreshToken != null && !_isRefreshing) {
       // Prevent infinite loops on the refresh token endpoint itself
       if (err.requestOptions.path.contains(NetworkConstants.generateNewTokens)) {
-        await _storageService.clearTokens();
+        await _clearPrivateSession();
         getx.Get.offAllNamed('/login');
         return super.onError(err, handler);
       }
@@ -54,10 +55,18 @@ class AuthInterceptor extends Interceptor {
       }
 
       // If refresh failed, clear tokens and redirect to login
-      await _storageService.clearTokens();
+      await _clearPrivateSession();
       getx.Get.offAllNamed('/login');
     }
     super.onError(err, handler);
+  }
+
+  Future<void> _clearPrivateSession() async {
+    if (getx.Get.isRegistered<SessionPrivacyService>()) {
+      await getx.Get.find<SessionPrivacyService>().clearUserSessionData();
+    } else {
+      await _storageService.clearUserScopedPreferences();
+    }
   }
 
   Future<Map<String, String>?> _refreshToken(String refreshToken) async {

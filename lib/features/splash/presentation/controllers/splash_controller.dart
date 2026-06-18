@@ -1,5 +1,6 @@
 import 'package:get/get.dart';
 import '../../../../services/storage_service.dart';
+import '../../../../services/session_privacy_service.dart';
 import '../../../../core/routes/app_routes.dart';
 import '../../../chats/domain/repositories/chat_repository.dart';
 
@@ -25,8 +26,10 @@ class SplashController extends GetxController {
       
       Get.offAllNamed(AppRoutes.home);
     } else {
+      if (Get.isRegistered<SessionPrivacyService>()) {
+        await Get.find<SessionPrivacyService>().clearUserSessionData();
+      }
       Get.offAllNamed(AppRoutes.onboarding);
     }
   }
 }
-

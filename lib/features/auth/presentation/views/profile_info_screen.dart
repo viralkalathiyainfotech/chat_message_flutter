@@ -8,8 +8,23 @@ import '../../../../core/routes/app_routes.dart';
 import '../../../../core/extensions/app_extensions.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
-class ProfileInfoScreen extends GetView<AuthController> {
+class ProfileInfoScreen extends StatefulWidget {
   const ProfileInfoScreen({super.key});
+
+  @override
+  State<ProfileInfoScreen> createState() => _ProfileInfoScreenState();
+}
+
+class _ProfileInfoScreenState extends State<ProfileInfoScreen> {
+  final AuthController controller = Get.find<AuthController>();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.loadLoggedInProfile();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -29,9 +44,19 @@ class ProfileInfoScreen extends GetView<AuthController> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                StringConstants.profileSubtitle,
+                'Review your profile details before continuing. Existing details are loaded from your account.',
                 style: TextStyle(fontSize: 14, color: ColorConstants.textSecondary, height: 1.5),
               ),
+              Obx(() => controller.isProfileLoading.value
+                  ? const Padding(
+                      padding: EdgeInsets.only(top: 16),
+                      child: LinearProgressIndicator(
+                        minHeight: 2,
+                        color: ColorConstants.primaryBlue,
+                        backgroundColor: ColorConstants.inputBackground,
+                      ),
+                    )
+                  : const SizedBox.shrink()),
               40.height,
               Center(
                 child: Obx(() => GestureDetector(

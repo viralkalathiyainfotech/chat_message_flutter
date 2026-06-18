@@ -15,7 +15,7 @@ class UserModel extends User {
       mobileNumber: json['mobileNumber'] ?? '',
       userName: json['userName'],
       bio: json['bio'],
-      profilePhoto: json['profilePhoto'],
+      profilePhoto: json['photo'] ?? json['profilePhoto'],
     );
   }
 }

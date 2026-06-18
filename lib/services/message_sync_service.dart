@@ -25,6 +25,10 @@ class MessageSyncService extends GetxService {
 
   Future<void> syncMissedMessages({bool showNotifications = false}) async {
     if (_isSyncing) return;
+    if (_storageService.token == null || _storageService.token!.isEmpty) {
+      Get.log('Skipping missed message sync: auth token is not available.');
+      return;
+    }
     _isSyncing = true;
     try {
       await _receiptService.flushPendingDelivered();

@@ -37,6 +37,7 @@ class BackgroundMessageProcessor {
     required bool showNotification,
   }) async {
     await ensureBackgroundServices();
+    
     final data = message.data;
     if ((data['type'] ?? data['message_type']) != 'chat_message') return;
 
@@ -59,28 +60,67 @@ class BackgroundMessageProcessor {
     required String? payload,
     required String? input,
   }) async {
-    if (payload == null || payload.isEmpty) return;
     await ensureBackgroundServices();
 
-    final decoded = jsonDecode(payload) as Map<String, dynamic>;
-    final chatId = decoded['chatId']?.toString();
-    final messageId = decoded['messageId']?.toString();
+    String? messageId;
+    String? chatId;
+    try {
+      if (payload == null || payload.isEmpty) {
+        await _recordActionTrace(actionId, 'missing_payload');
+        return;
+      }
 
-    if (actionId == ChatNotificationService.replyActionId &&
-        chatId != null &&
-        input != null &&
-        input.trim().isNotEmpty) {
-      await _sendNotificationReply(chatId, input.trim());
-      return;
-    }
+      final decoded = jsonDecode(payload) as Map<String, dynamic>;
+      chatId = _actionChatId(decoded);
+      messageId = decoded['messageId']?.toString();
+      await _recordActionTrace(actionId, 'received', extra: {
+        'chatId': chatId,
+        'messageId': messageId,
+        'hasInput': input?.trim().isNotEmpty == true,
+      });
 
-    if (actionId == ChatNotificationService.markReadActionId &&
-        chatId != null &&
-        messageId != null) {
-      await Get.find<ReceiptService>().markRead(
-        chatId: chatId,
-        messageIds: [messageId],
-      );
+      if (chatId == null || chatId.isEmpty || messageId == null) {
+        await _recordActionTrace(actionId, 'invalid_payload');
+        return;
+      }
+
+      await _cancelActionNotification(messageId);
+
+      if (actionId == ChatNotificationService.replyActionId) {
+        final replyText = input?.trim();
+        if (replyText == null || replyText.isEmpty) {
+          await _recordActionTrace(actionId, 'empty_reply');
+          return;
+        }
+
+        await _sendNotificationReply(chatId, replyText);
+        await _recordActionTrace(actionId, 'reply_sent', extra: {
+          'chatId': chatId,
+          'messageId': messageId,
+        });
+        return;
+      }
+
+      if (actionId == ChatNotificationService.markReadActionId) {
+        await Get.find<ReceiptService>().markRead(
+          chatId: chatId,
+          messageIds: [messageId],
+        );
+        RealmHelper().updateMessageStatus(messageId, 'read');
+        await _recordActionTrace(actionId, 'marked_read', extra: {
+          'chatId': chatId,
+          'messageId': messageId,
+        });
+      }
+    } catch (e) {
+      await _recordActionTrace(actionId, 'failed', extra: {
+        'chatId': chatId,
+        'messageId': messageId,
+        'error': e.toString(),
+      });
+      Get.log('Failed to handle notification action: $e', isError: true);
+    } finally {
+      await _cancelActionNotification(messageId);
     }
   }
 
@@ -135,7 +175,7 @@ class BackgroundMessageProcessor {
       '_id': messageId,
       'messageId': messageId,
       'senderId': data['sender_id'],
-      'receiverId': data['is_group'] == 'true' ? data['chat_id'] : null,
+      'receiverId': data['receiver_id'],
       'groupId': data['is_group'] == 'true' ? data['chat_id'] : null,
       'content': {
         'type': data['message_type'] ?? 'text',
@@ -152,14 +192,17 @@ class BackgroundMessageProcessor {
     Map<String, dynamic> data,
   ) async {
     final messageId = _id(payload['_id'] ?? data['message_id']);
-    final chatId = _id(payload['groupId'] ?? payload['group'] ?? data['chat_id']) ??
-        _id(payload['senderId'] ?? payload['sender'] ?? data['sender_id']);
+    final chatId = _notificationChatId(payload, data);
     if (messageId == null || chatId == null) return;
 
     final content = payload['content'];
-    final preview = content is Map
+    final encryptedPreview = content is Map
         ? (content['content']?.toString() ?? data['preview']?.toString() ?? '')
         : data['preview']?.toString() ?? '';
+    final preview = _notificationPreview(
+      encryptedPreview,
+      messageType: data['message_type']?.toString(),
+    );
 
     await Get.find<ChatNotificationService>().showChatMessageNotification(
       chatId: chatId,
@@ -177,14 +220,68 @@ class BackgroundMessageProcessor {
     String replyText,
   ) async {
     final encrypted = EncryptionUtil.encrypt(replyText);
-    await Get.find<ApiService>().dio.post(
+    final response = await Get.find<ApiService>().dio.post(
       NetworkConstants.replyFromNotification,
       data: {
         'chatId': chatId,
         'replyText': encrypted,
         'clientMessageId': const Uuid().v4(),
-        'deviceId': Get.find<StorageService>().getString('deviceId'),
+        'deviceId': await _deviceId(),
       },
+    );
+
+    final message = response.data is Map
+        ? (response.data['data'] ?? response.data['message'])
+        : null;
+    if (message is Map<String, dynamic>) {
+      await Get.find<ChatRepository>().saveIncomingMessage({
+        ...message,
+        'isFromNotification': true,
+        'isSynced': true,
+      });
+      return;
+    }
+    if (message is Map) {
+      await Get.find<ChatRepository>().saveIncomingMessage({
+        ...message.map((key, value) => MapEntry(key.toString(), value)),
+        'isFromNotification': true,
+        'isSynced': true,
+      });
+    }
+  }
+
+  static Future<String> _deviceId() async {
+    final storage = Get.find<StorageService>();
+    var deviceId = storage.getString('deviceId');
+    if (deviceId == null || deviceId.isEmpty) {
+      deviceId = const Uuid().v4();
+      await storage.saveString('deviceId', deviceId);
+    }
+    return deviceId;
+  }
+
+  static Future<void> _cancelActionNotification(String? messageId) async {
+    if (messageId == null || !Get.isRegistered<ChatNotificationService>()) {
+      return;
+    }
+
+    await Get.find<ChatNotificationService>().cancelChatNotification(messageId);
+  }
+
+  static Future<void> _recordActionTrace(
+    String? actionId,
+    String stage, {
+    Map<String, dynamic>? extra,
+  }) async {
+    if (!Get.isRegistered<StorageService>()) return;
+    await Get.find<StorageService>().saveString(
+      'last_notification_action_trace',
+      jsonEncode({
+        'actionId': actionId,
+        'stage': stage,
+        'at': DateTime.now().toUtc().toIso8601String(),
+        if (extra != null) ...extra,
+      }),
     );
   }
 
@@ -193,5 +290,39 @@ class BackgroundMessageProcessor {
     if (value is Map) return (value['_id'] ?? value['id'])?.toString();
     final text = value.toString();
     return text.isEmpty ? null : text;
+  }
+
+  static String? _notificationChatId(
+    Map<String, dynamic> payload,
+    Map<String, dynamic> data,
+  ) {
+    final isGroup = data['is_group'] == 'true' ||
+        data['is_group'] == true ||
+        payload['groupId'] != null ||
+        payload['group'] != null;
+
+    if (isGroup) {
+      return _id(payload['groupId'] ?? payload['group'] ?? data['chat_id']);
+    }
+
+    return _id(payload['senderId'] ?? payload['sender'] ?? data['sender_id']) ??
+        _id(data['chat_id']);
+  }
+
+  static String? _actionChatId(Map<String, dynamic> payload) {
+    final isGroup = payload['isGroup'] == true || payload['is_group'] == 'true';
+    if (isGroup) {
+      return _id(payload['chatId'] ?? payload['chat_id']);
+    }
+
+    return _id(payload['senderId'] ?? payload['sender_id']) ??
+        _id(payload['chatId'] ?? payload['chat_id']);
+  }
+
+  static String _notificationPreview(String preview, {String? messageType}) {
+    if (messageType == 'file') return preview.isEmpty ? 'Attachment' : preview;
+    if (messageType == 'call') return 'Call';
+    if (messageType == 'system') return EncryptionUtil.decrypt(preview);
+    return EncryptionUtil.decrypt(preview);
   }
 }

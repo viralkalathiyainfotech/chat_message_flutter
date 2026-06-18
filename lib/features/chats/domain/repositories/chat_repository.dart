@@ -504,8 +504,6 @@ class ChatRepository {
     final now = DateTime.now();
 
     final userId = Get.find<StorageService>().getUserId() ?? 'myUserId';
-    final isGroupMessage =
-        _realmHelper.realm.find<UserRealm>(receiverId)?.isGroup == true;
 
     // Encrypt the content if it's text
     String finalContent = content;
@@ -529,7 +527,7 @@ class ChatRepository {
       false,
       now,
       now,
-      !_connectivity.isOnline.value || !isGroupMessage,
+      !_connectivity.isOnline.value,
       content: contentRealm,
     );
     _realmHelper.saveMessage(localMessage);
@@ -778,9 +776,9 @@ class ChatRepository {
         try {
           await _apiService.dio.post(
             NetworkConstants.addContactList,
-            data: [
+            data: {
               {"contacts": apiContactsPayload},
-            ],
+            },
           );
           Get.log('Contacts synced successfully');
         } catch (e) {
