@@ -72,6 +72,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     ChatDetailController controller,
   ) {
     final user = widget.user;
+    final isGroupChat = _isGroupChat(user);
     return AppBar(
       elevation: 1,
       surfaceTintColor: Colors.transparent,
@@ -85,7 +86,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 ? CachedNetworkImageProvider(user.photo!)
                 : null,
             child: user.photo == null
-                ? Icon(user.isGroup == true ? Icons.group : Icons.person)
+                ? Icon(isGroupChat ? Icons.group : Icons.person)
                 : null,
           ),
           const SizedBox(width: 12),
@@ -113,7 +114,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     );
                   }
 
-                  if (user.isGroup == true) {
+                  if (isGroupChat) {
                     return const Text(
                       'Tap here for group info',
                       style: TextStyle(fontSize: 12, color: Colors.grey),
@@ -142,7 +143,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             Get.find<CallController>().startCall(
               controller.remoteUser.id,
               video: true,
-              isGroup: user.isGroup == true,
+              isGroup: isGroupChat,
               participants: _groupMemberIds(user),
             );
           },
@@ -153,7 +154,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             Get.find<CallController>().startCall(
               controller.remoteUser.id,
               video: false,
-              isGroup: user.isGroup == true,
+              isGroup: isGroupChat,
               participants: _groupMemberIds(user),
             );
           },
@@ -161,6 +162,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         IconButton(icon: const Icon(Icons.more_vert), onPressed: () {}),
       ],
     );
+  }
+
+  bool _isGroupChat(UserRealm user) {
+    final members = _groupMemberIds(user);
+    return user.isGroup == true && members != null && members.isNotEmpty;
   }
 
   List<String>? _groupMemberIds(UserRealm user) {

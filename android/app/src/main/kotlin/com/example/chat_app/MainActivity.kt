@@ -11,6 +11,8 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.drawable.Icon
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.util.Rational
 import com.example.chat_app.call.CallForegroundService
@@ -25,6 +27,8 @@ class MainActivity : FlutterActivity() {
     private var pipChannel: MethodChannel? = null
     private var notificationChannel: MethodChannel? = null
     private var hasPendingOpenCall = false
+    private var pendingOpenCallAttempts = 0
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private val callActionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -113,8 +117,7 @@ class MainActivity : FlutterActivity() {
         registerCallActionReceiver()
         handleCallIntent(intent)
         if (hasPendingOpenCall) {
-            openCallScreen()
-            hasPendingOpenCall = false
+            scheduleOpenCallScreen()
         }
     }
 
@@ -160,6 +163,8 @@ class MainActivity : FlutterActivity() {
 
     private fun handleCallIntent(intent: Intent?) {
         if (intent?.action == ACTION_OPEN_CALL) {
+            hasPendingOpenCall = true
+            pendingOpenCallAttempts = 0
             openCallScreen()
         }
     }
@@ -169,8 +174,39 @@ class MainActivity : FlutterActivity() {
         if (channel == null) {
             hasPendingOpenCall = true
         } else {
-            channel.invokeMethod("openCallScreen", null)
+            channel.invokeMethod(
+                "openCallScreen",
+                null,
+                object : MethodChannel.Result {
+                    override fun success(result: Any?) {
+                        hasPendingOpenCall = false
+                        pendingOpenCallAttempts = 0
+                    }
+
+                    override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
+                        retryOpenCallScreen()
+                    }
+
+                    override fun notImplemented() {
+                        retryOpenCallScreen()
+                    }
+                },
+            )
         }
+    }
+
+    private fun retryOpenCallScreen() {
+        hasPendingOpenCall = true
+        if (pendingOpenCallAttempts >= MAX_OPEN_CALL_ATTEMPTS) {
+            Log.w("MainActivity", "Unable to deliver openCallScreen to Flutter")
+            return
+        }
+        pendingOpenCallAttempts += 1
+        scheduleOpenCallScreen()
+    }
+
+    private fun scheduleOpenCallScreen() {
+        mainHandler.postDelayed({ openCallScreen() }, OPEN_CALL_RETRY_DELAY_MS)
     }
 
     private fun invokeCallControl(method: String) {
@@ -301,5 +337,7 @@ class MainActivity : FlutterActivity() {
         const val ACTION_TOGGLE_MIC = "com.example.chat_app.action.TOGGLE_MIC"
         const val ACTION_TOGGLE_CAMERA = "com.example.chat_app.action.TOGGLE_CAMERA"
         const val ACTION_OPEN_CALL = "com.example.chat_app.action.OPEN_CALL"
+        private const val OPEN_CALL_RETRY_DELAY_MS = 300L
+        private const val MAX_OPEN_CALL_ATTEMPTS = 10
     }
 }

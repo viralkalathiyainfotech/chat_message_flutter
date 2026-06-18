@@ -302,16 +302,22 @@ class ChatRepository {
         return;
       }
 
+      final receiverIsKnownGroup =
+          receiverId.isNotEmpty &&
+          _realmHelper.realm.find<UserRealm>(receiverId)?.isGroup == true;
       final isGroupMessage =
-          groupId.isNotEmpty || (receiverId.isNotEmpty && receiverId != myId);
+          groupId.isNotEmpty ||
+          receiverIsKnownGroup ||
+          _payloadLooksLikeGroup(groupRaw) ||
+          _payloadLooksLikeGroup(receiverRaw);
+      final privateChatId = senderId == myId ? receiverId : senderId;
       final chatId = isGroupMessage
           ? (groupId.isNotEmpty ? groupId : receiverId)
-          : senderId;
-      _ensureChatUser(
-        chatId,
-        source: groupRaw ?? (isGroupMessage ? receiverRaw : senderRaw),
-        isGroup: isGroupMessage,
-      );
+          : privateChatId;
+      final chatSource = isGroupMessage
+          ? (groupRaw ?? receiverRaw)
+          : (senderId == myId ? receiverRaw : senderRaw);
+      _ensureChatUser(chatId, source: chatSource, isGroup: isGroupMessage);
 
       if (senderId != myId) {
         _ensureChatUser(senderId, source: senderRaw, isGroup: false);
@@ -417,12 +423,25 @@ class ChatRepository {
       if (isGroup) {
         existing.isGroup = true;
       } else {
-        existing.isGroup ??= false;
+        final hasGroupMembers = existing.membersListJson?.isNotEmpty == true;
+        if (existing.isGroup != true || !hasGroupMembers) {
+          existing.isGroup = false;
+        }
       }
       if (existing.membersListJson == null && sourceMap['members'] != null) {
         existing.membersListJson = jsonEncode(sourceMap['members']);
       }
     });
+  }
+
+  bool _payloadLooksLikeGroup(dynamic value) {
+    if (value is! Map) return false;
+    final explicitGroup = value['isGroup'];
+    if (explicitGroup == true || explicitGroup?.toString() == 'true') {
+      return true;
+    }
+    final members = value['members'];
+    return members is List && members.isNotEmpty;
   }
 
   Future<Map<String, String>> uploadAttachment({

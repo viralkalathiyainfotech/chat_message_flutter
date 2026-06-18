@@ -46,26 +46,50 @@ class CallForegroundService : Service() {
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            var serviceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            var callServiceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             if (isVideo) {
-                serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                callServiceType = callServiceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
             }
+
+            var serviceType = callServiceType
             if (isScreenSharing) {
                 serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             }
-            try {
+            if (isScreenSharing) {
+                startForegroundSafely(notification, serviceType, callServiceType)
+            } else {
                 startForeground(CallNotificationHelper.CALL_NOTIFICATION_ID, notification, serviceType)
-            } catch (e: SecurityException) {
-                if (!isScreenSharing) throw e
-                Log.w(TAG, "Retrying foreground service as mediaProjection only", e)
-                startForeground(
-                    CallNotificationHelper.CALL_NOTIFICATION_ID,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
-                )
             }
         } else {
             startForeground(CallNotificationHelper.CALL_NOTIFICATION_ID, notification)
+        }
+    }
+
+    private fun startForegroundSafely(
+        notification: android.app.Notification,
+        requestedServiceType: Int,
+        fallbackServiceType: Int,
+    ) {
+        try {
+            startForeground(
+                CallNotificationHelper.CALL_NOTIFICATION_ID,
+                notification,
+                requestedServiceType,
+            )
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Media projection foreground service was not allowed; keeping call notification active", e)
+            startForeground(
+                CallNotificationHelper.CALL_NOTIFICATION_ID,
+                notification,
+                fallbackServiceType,
+            )
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "Media projection foreground service type was rejected; keeping call notification active", e)
+            startForeground(
+                CallNotificationHelper.CALL_NOTIFICATION_ID,
+                notification,
+                fallbackServiceType,
+            )
         }
     }
 

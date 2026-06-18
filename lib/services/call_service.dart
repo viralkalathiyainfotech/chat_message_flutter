@@ -19,7 +19,9 @@ class CallService extends GetxService {
   final StorageService _storageService = Get.find<StorageService>();
 
   Map<String, RTCPeerConnection> peerConnections = {};
+  final Map<String, RTCRtpSender> _videoSenders = {};
   final Map<String, List<RTCIceCandidate>> _pendingRemoteCandidates = {};
+  final Map<String, dynamic> _pendingPreAcceptOffers = {};
   MediaStream? localStream;
   MediaStream? _screenShareStream;
   MediaStreamTrack? _cameraVideoTrackBeforeScreenShare;
@@ -51,6 +53,7 @@ class CallService extends GetxService {
   bool isVideoCall = false;
   bool isGroupCall = false;
   Set<String> callParticipants = {}; // The current participants
+  final Set<String> _activeParticipantIds = {};
 
   @override
   void onInit() {
@@ -85,13 +88,21 @@ class CallService extends GetxService {
     _socketService.onCallAccepted = (data) async {
       final signal = data['signal'];
       final peerId = _peerIdFromPayload(data);
+      if (isGroupCall && _isForCurrentRoom(data)) {
+        final acceptedParticipantId = _acceptedParticipantIdFromPayload(data);
+        if (acceptedParticipantId != null) {
+          _markParticipantActive(acceptedParticipantId);
+        }
+      }
       if (signal != null &&
           peerId != null &&
           peerConnections.containsKey(peerId)) {
         if (signal['type'] == 'answer') {
           final didApplyAnswer = await _applyRemoteDescription(peerId, signal);
           if (didApplyAnswer) {
+            _markParticipantActive(peerId);
             _markCallConnected();
+            _introduceParticipantToGroup(peerId);
           }
         }
       } else {
@@ -103,11 +114,25 @@ class CallService extends GetxService {
       final signal = data['signal'];
       final peerId = _peerIdFromPayload(data);
       if (signal == null || peerId == null) return;
+      if (!_isForCurrentRoom(data)) return;
+
+      if (signal is Map && signal['type'] == 'participant-active') {
+        await _handleParticipantActiveSignal(signal);
+        return;
+      }
 
       if (signal['type'] == 'offer' && !peerConnections.containsKey(peerId)) {
+        if (!isInCall.value || localStream == null) {
+          if (isGroupCall) {
+            _markParticipantActive(peerId);
+            _pendingPreAcceptOffers[peerId] = signal;
+          }
+          Get.log('Ignoring call offer from $peerId before call is accepted');
+          return;
+        }
         await _createPeerConnection(peerId, isInitiator: false, offer: signal);
-        isInCall.value = true;
-        callStartTime ??= DateTime.now();
+        _markParticipantActive(peerId);
+        _markCallConnected();
         return;
       }
 
@@ -129,7 +154,9 @@ class CallService extends GetxService {
           signal,
         );
         if (didApplyDescription && signal['type'] == 'answer') {
+          _markParticipantActive(peerId);
           _markCallConnected();
+          _introduceParticipantToGroup(peerId);
         }
       }
     };
@@ -138,10 +165,23 @@ class CallService extends GetxService {
     _socketService.socket?.on("participant-joined", (data) async {
       final newParticipantId = data['newParticipantId'];
       final roomId = data['roomId'];
-      if (newParticipantId != _storageService.getUserId() &&
-          roomId == currentRoomId) {
-        callParticipants.add(newParticipantId);
-        await _createPeerConnection(newParticipantId, isInitiator: true);
+      if (!isGroupCall) return;
+      if (newParticipantId == null || roomId != currentRoomId) return;
+
+      final participantId = newParticipantId.toString();
+      if (participantId == _storageService.getUserId()) return;
+
+      _markParticipantActive(participantId);
+
+      if (isInCall.value &&
+          localStream != null &&
+          !peerConnections.containsKey(participantId) &&
+          _shouldInitiateMeshWith(participantId)) {
+        await _createPeerConnection(
+          participantId,
+          isInitiator: true,
+          sendOfferAsCallSignal: true,
+        );
       }
     });
 
@@ -149,9 +189,7 @@ class CallService extends GetxService {
       final from = data['from'];
       if (isGroupCall) {
         _removePeer(from);
-        if (peerConnections.isEmpty) {
-          endCallLocally();
-        }
+        _endGroupCallIfAlone();
       } else {
         endCallLocally();
       }
@@ -161,9 +199,7 @@ class CallService extends GetxService {
       final leavingUser = data['leavingUser'];
       if (leavingUser != null) {
         _removePeer(leavingUser);
-        if (peerConnections.isEmpty) {
-          endCallLocally();
-        }
+        _endGroupCallIfAlone();
       }
     });
 
@@ -297,19 +333,11 @@ class CallService extends GetxService {
 
     // Connect to the caller
     await _createPeerConnection(callerId, isInitiator: false, offer: signal);
+    _markParticipantActive(callerId);
 
-    // Connect to other existing participants (if group call)
-    if (isGroupCall && incomingCallData!['participants'] != null) {
-      final others = _normalizeParticipantIds(
-        incomingCallData!['participants'],
-      ).where((id) => id != _storageService.getUserId() && id != callerId);
-      for (var pId in others) {
-        await _createPeerConnection(
-          pId,
-          isInitiator: true,
-          sendOfferAsCallSignal: true,
-        );
-      }
+    if (isGroupCall) {
+      _announceParticipantJoined();
+      await _connectKnownGroupParticipants(callerId);
     }
   }
 
@@ -420,6 +448,10 @@ class CallService extends GetxService {
     bool sendOfferAsCallSignal = false,
   }) async {
     if (peerConnections.containsKey(peerId)) return;
+    if (localStream == null) {
+      Get.log('Cannot create peer connection for $peerId without local media');
+      return;
+    }
 
     final configuration = {
       'iceServers': [
@@ -432,7 +464,10 @@ class CallService extends GetxService {
 
     if (localStream != null) {
       for (final track in localStream!.getTracks()) {
-        await pc.addTrack(track, localStream!);
+        final sender = await pc.addTrack(track, localStream!);
+        if (track.kind == 'video') {
+          _videoSenders[peerId] = sender;
+        }
       }
     }
 
@@ -514,6 +549,8 @@ class CallService extends GetxService {
           'toEmail': _storageService.getUserId(),
           'participants': callParticipants.toList(),
           'roomId': currentRoomId,
+          'isGroupCall': isGroupCall,
+          'groupId': isGroupCall ? remoteUserId : null,
         });
 
         _socketService.emitCallSignal({
@@ -531,6 +568,126 @@ class CallService extends GetxService {
     isReceivingCall.value = false;
     isInCall.value = true;
     callStartTime ??= DateTime.now();
+    final currentUserId = _storageService.getUserId();
+    if (currentUserId != null) _activeParticipantIds.add(currentUserId);
+  }
+
+  void _markParticipantActive(String peerId) {
+    if (peerId.isEmpty) return;
+    callParticipants.add(peerId);
+    _activeParticipantIds.add(peerId);
+  }
+
+  void _announceParticipantJoined() {
+    final currentUserId = _storageService.getUserId();
+    if (currentUserId == null || currentRoomId == null) return;
+
+    _socketService.socket?.emit('participant-joined', {
+      'newParticipantId': currentUserId,
+      'roomId': currentRoomId,
+      'groupId': remoteUserId,
+      'participants': callParticipants.toList(),
+    });
+  }
+
+  void _introduceParticipantToGroup(String participantId) {
+    if (!isGroupCall || currentRoomId == null) return;
+    final myId = _storageService.getUserId();
+    if (myId == null || participantId == myId) return;
+
+    final activePeers = _activeParticipantIds
+        .where((id) => id != myId && id != participantId)
+        .toList();
+
+    for (final peerId in activePeers) {
+      _socketService.emitCallSignal({
+        'signal': {
+          'type': 'participant-active',
+          'participantId': participantId,
+        },
+        'from': myId,
+        'to': peerId,
+        'roomId': currentRoomId,
+      });
+
+      _socketService.emitCallSignal({
+        'signal': {'type': 'participant-active', 'participantId': peerId},
+        'from': myId,
+        'to': participantId,
+        'roomId': currentRoomId,
+      });
+    }
+  }
+
+  Future<void> _handleParticipantActiveSignal(
+    Map<dynamic, dynamic> signal,
+  ) async {
+    if (!isGroupCall) return;
+    final participantId = signal['participantId']?.toString();
+    final myId = _storageService.getUserId();
+    if (participantId == null ||
+        participantId.isEmpty ||
+        participantId == myId) {
+      return;
+    }
+
+    _markParticipantActive(participantId);
+
+    if (!isInCall.value ||
+        localStream == null ||
+        peerConnections.containsKey(participantId) ||
+        !_shouldInitiateMeshWith(participantId)) {
+      return;
+    }
+
+    await _createPeerConnection(
+      participantId,
+      isInitiator: true,
+      sendOfferAsCallSignal: true,
+    );
+  }
+
+  Future<void> _connectKnownGroupParticipants(String callerId) async {
+    final myId = _storageService.getUserId();
+    if (myId == null) return;
+
+    final pendingOffers = Map<String, dynamic>.from(_pendingPreAcceptOffers);
+    _pendingPreAcceptOffers.clear();
+    for (final entry in pendingOffers.entries) {
+      final peerId = entry.key;
+      if (peerId == myId ||
+          peerId == callerId ||
+          peerConnections.containsKey(peerId)) {
+        continue;
+      }
+      await _createPeerConnection(
+        peerId,
+        isInitiator: false,
+        offer: entry.value,
+      );
+      _markParticipantActive(peerId);
+    }
+
+    final knownParticipants = _activeParticipantIds.toList();
+    for (final peerId in knownParticipants) {
+      if (peerId == myId ||
+          peerId == callerId ||
+          peerConnections.containsKey(peerId)) {
+        continue;
+      }
+      if (!_shouldInitiateMeshWith(peerId)) continue;
+      await _createPeerConnection(
+        peerId,
+        isInitiator: true,
+        sendOfferAsCallSignal: true,
+      );
+    }
+  }
+
+  bool _shouldInitiateMeshWith(String peerId) {
+    final myId = _storageService.getUserId();
+    if (myId == null || myId.isEmpty || peerId.isEmpty) return true;
+    return myId.compareTo(peerId) < 0;
   }
 
   Future<bool> _applyRemoteDescription(
@@ -583,6 +740,30 @@ class CallService extends GetxService {
       if (id != null && id.isNotEmpty && id != myId) return id;
     }
     return null;
+  }
+
+  String? _acceptedParticipantIdFromPayload(Map<String, dynamic> data) {
+    final myId = _storageService.getUserId();
+    final candidates = [
+      data['acceptedUserId'],
+      data['participantId'],
+      data['toEmail'],
+      data['to'],
+      data['fromEmail'],
+      data['from'],
+    ];
+
+    for (final candidate in candidates) {
+      final id = candidate?.toString();
+      if (id != null && id.isNotEmpty && id != myId) return id;
+    }
+    return null;
+  }
+
+  bool _isForCurrentRoom(Map<String, dynamic> data) {
+    final payloadRoomId = data['roomId']?.toString();
+    if (payloadRoomId == null || payloadRoomId.isEmpty) return true;
+    return currentRoomId == null || payloadRoomId == currentRoomId;
   }
 
   MediaStream? _videoStreamFromTrackEvent(RTCTrackEvent event) {
@@ -678,6 +859,9 @@ class CallService extends GetxService {
 
   void _removePeer(String peerId) {
     _pendingRemoteCandidates.remove(peerId);
+    _pendingPreAcceptOffers.remove(peerId);
+    _videoSenders.remove(peerId);
+    _activeParticipantIds.remove(peerId);
     if (peerConnections.containsKey(peerId)) {
       peerConnections[peerId]?.close();
       peerConnections[peerId]?.dispose();
@@ -694,6 +878,17 @@ class CallService extends GetxService {
     }
     callParticipants.remove(peerId);
     hasRemoteStream.value = remoteRenderers.isNotEmpty;
+  }
+
+  void _endGroupCallIfAlone() {
+    if (!isGroupCall || !isInCall.value) return;
+    final myId = _storageService.getUserId();
+    final activeRemoteCount = _activeParticipantIds
+        .where((participantId) => participantId != myId)
+        .length;
+    if (peerConnections.isEmpty || activeRemoteCount == 0) {
+      endCallLocally();
+    }
   }
 
   void declineCall() {
@@ -786,6 +981,14 @@ class CallService extends GetxService {
       }
 
       _cameraVideoTrackBeforeScreenShare = cameraTracks.first;
+      if (GetPlatform.isAndroid) {
+        final captureAllowed = await Helper.requestCapturePermission();
+        if (!captureAllowed) {
+          _cameraVideoTrackBeforeScreenShare = null;
+          return;
+        }
+      }
+
       await _setScreenShareForegroundState(true);
       displayMedia = await navigator.mediaDevices.getDisplayMedia({
         'video': true,
@@ -802,7 +1005,7 @@ class CallService extends GetxService {
 
       final screenTrack = displayTracks.first;
       _screenShareStream = displayMedia;
-      await _replaceOutgoingVideoTrack(screenTrack);
+      await _replaceOutgoingVideoTrack(screenTrack, stream: displayMedia);
 
       localRenderer.value.srcObject = displayMedia;
       localRenderer.refresh();
@@ -837,7 +1040,7 @@ class CallService extends GetxService {
               : null);
 
       if (cameraTrack != null) {
-        await _replaceOutgoingVideoTrack(cameraTrack);
+        await _replaceOutgoingVideoTrack(cameraTrack, stream: localStream);
       }
 
       await _disposeMediaStream(_screenShareStream);
@@ -855,14 +1058,40 @@ class CallService extends GetxService {
     }
   }
 
-  Future<void> _replaceOutgoingVideoTrack(MediaStreamTrack videoTrack) async {
-    for (final pc in peerConnections.values) {
-      final senders = await pc.getSenders();
-      for (final sender in senders) {
-        if (sender.track?.kind == 'video') {
-          await sender.replaceTrack(videoTrack);
+  Future<void> _replaceOutgoingVideoTrack(
+    MediaStreamTrack videoTrack, {
+    MediaStream? stream,
+  }) async {
+    var replacedCount = 0;
+
+    for (final entry in peerConnections.entries) {
+      final peerId = entry.key;
+      final storedSender = _videoSenders[peerId];
+
+      if (storedSender != null) {
+        await storedSender.replaceTrack(videoTrack);
+        if (stream != null) {
+          await storedSender.setStreams([stream]);
         }
+        replacedCount++;
+        continue;
       }
+
+      final senders = await entry.value.getSenders();
+      for (final sender in senders) {
+        if (sender.track?.kind != 'video') continue;
+        await sender.replaceTrack(videoTrack);
+        if (stream != null) {
+          await sender.setStreams([stream]);
+        }
+        _videoSenders[peerId] = sender;
+        replacedCount++;
+        break;
+      }
+    }
+
+    if (replacedCount == 0) {
+      Get.log('No outgoing video sender found for screen share', isError: true);
     }
   }
 
@@ -911,6 +1140,7 @@ class CallService extends GetxService {
     isVideoCall = false;
     isGroupCall = false;
     callParticipants.clear();
+    _activeParticipantIds.clear();
     audioOutputs.clear();
     selectedAudioOutputId.value = CallAudioOutput.speakerId;
 
@@ -937,7 +1167,9 @@ class CallService extends GetxService {
       pc.dispose();
     }
     peerConnections.clear();
+    _videoSenders.clear();
     _pendingRemoteCandidates.clear();
+    _pendingPreAcceptOffers.clear();
 
     for (var renderer in remoteRenderers.values) {
       renderer.srcObject = null;

@@ -51,7 +51,11 @@ class _CallScreenState extends State<CallScreen> {
                             : _buildVoiceCallStage(),
                       ),
                       if (controller.callService.isVideoCall &&
-                          !controller.callService.isGroupCall)
+                          (!controller.callService.isGroupCall ||
+                              controller
+                                  .callService
+                                  .remoteRenderers
+                                  .isNotEmpty))
                         _buildLocalPreview(),
                       _buildTopBar(),
                       _buildBottomControls(),
@@ -228,7 +232,7 @@ class _CallScreenState extends State<CallScreen> {
 
       if (isGroupCall) {
         final tiles = <_VideoTile>[
-          if (hasLocal)
+          if (renderers.isEmpty && hasLocal)
             _VideoTile(
               renderer: controller.callService.localRenderer.value,
               label: 'You',
@@ -300,20 +304,91 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Widget _buildParticipantGrid(List<_VideoTile> tiles) {
-    final crossAxisCount = tiles.length <= 2 ? 1 : 2;
-    final aspectRatio = tiles.length <= 2 ? 0.76 : 0.72;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = 6.0;
+        final width = constraints.maxWidth;
+        final height = constraints.maxHeight;
+        final topPadding = 76.0;
+        final bottomPadding = 112.0;
+        final usableHeight = (height - topPadding - bottomPadding)
+            .clamp(220.0, height)
+            .toDouble();
 
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(8, 76, 8, 108),
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount,
-        childAspectRatio: aspectRatio,
-        mainAxisSpacing: 6,
-        crossAxisSpacing: 6,
-      ),
-      itemCount: tiles.length,
-      itemBuilder: (context, index) => _buildParticipantTile(tiles[index]),
+        if (tiles.length == 1) {
+          return Padding(
+            padding: EdgeInsets.fromLTRB(8, topPadding, 8, bottomPadding),
+            child: _buildParticipantTile(tiles.first),
+          );
+        }
+
+        if (tiles.length == 2) {
+          final tileHeight = (usableHeight - gap) / 2;
+          return Padding(
+            padding: EdgeInsets.fromLTRB(8, topPadding, 8, bottomPadding),
+            child: Column(
+              children: [
+                SizedBox(
+                  height: tileHeight,
+                  child: _buildParticipantTile(tiles[0]),
+                ),
+                const SizedBox(height: gap),
+                SizedBox(
+                  height: tileHeight,
+                  child: _buildParticipantTile(tiles[1]),
+                ),
+              ],
+            ),
+          );
+        }
+
+        if (tiles.length == 3) {
+          final topTileHeight = usableHeight * 0.58;
+          final bottomTileHeight = usableHeight - topTileHeight - gap;
+          final bottomTileWidth = (width - 16 - gap) / 2;
+          return Padding(
+            padding: EdgeInsets.fromLTRB(8, topPadding, 8, bottomPadding),
+            child: Column(
+              children: [
+                SizedBox(
+                  height: topTileHeight,
+                  width: double.infinity,
+                  child: _buildParticipantTile(tiles[0]),
+                ),
+                const SizedBox(height: gap),
+                Row(
+                  children: [
+                    SizedBox(
+                      height: bottomTileHeight,
+                      width: bottomTileWidth,
+                      child: _buildParticipantTile(tiles[1]),
+                    ),
+                    const SizedBox(width: gap),
+                    SizedBox(
+                      height: bottomTileHeight,
+                      width: bottomTileWidth,
+                      child: _buildParticipantTile(tiles[2]),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        }
+
+        return GridView.builder(
+          padding: EdgeInsets.fromLTRB(8, topPadding, 8, bottomPadding),
+          physics: const BouncingScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            childAspectRatio: 0.72,
+            mainAxisSpacing: gap,
+            crossAxisSpacing: gap,
+          ),
+          itemCount: tiles.length,
+          itemBuilder: (context, index) => _buildParticipantTile(tiles[index]),
+        );
+      },
     );
   }
 
