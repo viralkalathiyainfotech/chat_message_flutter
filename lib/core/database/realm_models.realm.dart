@@ -413,14 +413,31 @@ class MessageRealm extends _MessageRealm
     DateTime createdAt,
     DateTime updatedAt,
     bool isPending, {
+    String? serverId,
+    String? chatId,
     MessageContentRealm? content,
+    String? deliveryStatus,
+    String? readStatus,
+    String? eventId,
+    String? messageType,
+    String? preview,
     Iterable<MessageReactionRealm> reactions = const [],
+    DateTime? serverTimestamp,
+    bool? isFromNotification,
+    bool? isSynced,
   }) {
     RealmObjectBase.set(this, 'id', id);
+    RealmObjectBase.set(this, 'serverId', serverId);
+    RealmObjectBase.set(this, 'chatId', chatId);
     RealmObjectBase.set(this, 'senderId', senderId);
     RealmObjectBase.set(this, 'receiverId', receiverId);
     RealmObjectBase.set(this, 'content', content);
     RealmObjectBase.set(this, 'status', status);
+    RealmObjectBase.set(this, 'deliveryStatus', deliveryStatus);
+    RealmObjectBase.set(this, 'readStatus', readStatus);
+    RealmObjectBase.set(this, 'eventId', eventId);
+    RealmObjectBase.set(this, 'messageType', messageType);
+    RealmObjectBase.set(this, 'preview', preview);
     RealmObjectBase.set(this, 'edited', edited);
     RealmObjectBase.set<RealmList<MessageReactionRealm>>(
       this,
@@ -429,7 +446,10 @@ class MessageRealm extends _MessageRealm
     );
     RealmObjectBase.set(this, 'createdAt', createdAt);
     RealmObjectBase.set(this, 'updatedAt', updatedAt);
+    RealmObjectBase.set(this, 'serverTimestamp', serverTimestamp);
     RealmObjectBase.set(this, 'isPending', isPending);
+    RealmObjectBase.set(this, 'isFromNotification', isFromNotification);
+    RealmObjectBase.set(this, 'isSynced', isSynced);
   }
 
   MessageRealm._();
@@ -438,6 +458,17 @@ class MessageRealm extends _MessageRealm
   String get id => RealmObjectBase.get<String>(this, 'id') as String;
   @override
   set id(String value) => RealmObjectBase.set(this, 'id', value);
+
+  @override
+  String? get serverId =>
+      RealmObjectBase.get<String>(this, 'serverId') as String?;
+  @override
+  set serverId(String? value) => RealmObjectBase.set(this, 'serverId', value);
+
+  @override
+  String? get chatId => RealmObjectBase.get<String>(this, 'chatId') as String?;
+  @override
+  set chatId(String? value) => RealmObjectBase.set(this, 'chatId', value);
 
   @override
   String get senderId =>
@@ -464,6 +495,39 @@ class MessageRealm extends _MessageRealm
   String get status => RealmObjectBase.get<String>(this, 'status') as String;
   @override
   set status(String value) => RealmObjectBase.set(this, 'status', value);
+
+  @override
+  String? get deliveryStatus =>
+      RealmObjectBase.get<String>(this, 'deliveryStatus') as String?;
+  @override
+  set deliveryStatus(String? value) =>
+      RealmObjectBase.set(this, 'deliveryStatus', value);
+
+  @override
+  String? get readStatus =>
+      RealmObjectBase.get<String>(this, 'readStatus') as String?;
+  @override
+  set readStatus(String? value) =>
+      RealmObjectBase.set(this, 'readStatus', value);
+
+  @override
+  String? get eventId =>
+      RealmObjectBase.get<String>(this, 'eventId') as String?;
+  @override
+  set eventId(String? value) => RealmObjectBase.set(this, 'eventId', value);
+
+  @override
+  String? get messageType =>
+      RealmObjectBase.get<String>(this, 'messageType') as String?;
+  @override
+  set messageType(String? value) =>
+      RealmObjectBase.set(this, 'messageType', value);
+
+  @override
+  String? get preview =>
+      RealmObjectBase.get<String>(this, 'preview') as String?;
+  @override
+  set preview(String? value) => RealmObjectBase.set(this, 'preview', value);
 
   @override
   bool get edited => RealmObjectBase.get<bool>(this, 'edited') as bool;
@@ -493,9 +557,28 @@ class MessageRealm extends _MessageRealm
       RealmObjectBase.set(this, 'updatedAt', value);
 
   @override
+  DateTime? get serverTimestamp =>
+      RealmObjectBase.get<DateTime>(this, 'serverTimestamp') as DateTime?;
+  @override
+  set serverTimestamp(DateTime? value) =>
+      RealmObjectBase.set(this, 'serverTimestamp', value);
+
+  @override
   bool get isPending => RealmObjectBase.get<bool>(this, 'isPending') as bool;
   @override
   set isPending(bool value) => RealmObjectBase.set(this, 'isPending', value);
+
+  @override
+  bool? get isFromNotification =>
+      RealmObjectBase.get<bool>(this, 'isFromNotification') as bool?;
+  @override
+  set isFromNotification(bool? value) =>
+      RealmObjectBase.set(this, 'isFromNotification', value);
+
+  @override
+  bool? get isSynced => RealmObjectBase.get<bool>(this, 'isSynced') as bool?;
+  @override
+  set isSynced(bool? value) => RealmObjectBase.set(this, 'isSynced', value);
 
   @override
   Stream<RealmObjectChanges<MessageRealm>> get changes =>
@@ -512,15 +595,25 @@ class MessageRealm extends _MessageRealm
   EJsonValue toEJson() {
     return <String, dynamic>{
       'id': id.toEJson(),
+      'serverId': serverId.toEJson(),
+      'chatId': chatId.toEJson(),
       'senderId': senderId.toEJson(),
       'receiverId': receiverId.toEJson(),
       'content': content.toEJson(),
       'status': status.toEJson(),
+      'deliveryStatus': deliveryStatus.toEJson(),
+      'readStatus': readStatus.toEJson(),
+      'eventId': eventId.toEJson(),
+      'messageType': messageType.toEJson(),
+      'preview': preview.toEJson(),
       'edited': edited.toEJson(),
       'reactions': reactions.toEJson(),
       'createdAt': createdAt.toEJson(),
       'updatedAt': updatedAt.toEJson(),
+      'serverTimestamp': serverTimestamp.toEJson(),
       'isPending': isPending.toEJson(),
+      'isFromNotification': isFromNotification.toEJson(),
+      'isSynced': isSynced.toEJson(),
     };
   }
 
@@ -547,8 +640,18 @@ class MessageRealm extends _MessageRealm
           fromEJson(createdAt),
           fromEJson(updatedAt),
           fromEJson(isPending),
+          serverId: fromEJson(ejson['serverId']),
+          chatId: fromEJson(ejson['chatId']),
           content: fromEJson(ejson['content']),
+          deliveryStatus: fromEJson(ejson['deliveryStatus']),
+          readStatus: fromEJson(ejson['readStatus']),
+          eventId: fromEJson(ejson['eventId']),
+          messageType: fromEJson(ejson['messageType']),
+          preview: fromEJson(ejson['preview']),
           reactions: fromEJson(ejson['reactions']),
+          serverTimestamp: fromEJson(ejson['serverTimestamp']),
+          isFromNotification: fromEJson(ejson['isFromNotification']),
+          isSynced: fromEJson(ejson['isSynced']),
         ),
       _ => raiseInvalidEJson(ejson),
     };
@@ -563,6 +666,8 @@ class MessageRealm extends _MessageRealm
       'MessageRealm',
       [
         SchemaProperty('id', RealmPropertyType.string, primaryKey: true),
+        SchemaProperty('serverId', RealmPropertyType.string, optional: true),
+        SchemaProperty('chatId', RealmPropertyType.string, optional: true),
         SchemaProperty('senderId', RealmPropertyType.string),
         SchemaProperty('receiverId', RealmPropertyType.string),
         SchemaProperty(
@@ -572,6 +677,15 @@ class MessageRealm extends _MessageRealm
           linkTarget: 'MessageContentRealm',
         ),
         SchemaProperty('status', RealmPropertyType.string),
+        SchemaProperty(
+          'deliveryStatus',
+          RealmPropertyType.string,
+          optional: true,
+        ),
+        SchemaProperty('readStatus', RealmPropertyType.string, optional: true),
+        SchemaProperty('eventId', RealmPropertyType.string, optional: true),
+        SchemaProperty('messageType', RealmPropertyType.string, optional: true),
+        SchemaProperty('preview', RealmPropertyType.string, optional: true),
         SchemaProperty('edited', RealmPropertyType.bool),
         SchemaProperty(
           'reactions',
@@ -581,7 +695,18 @@ class MessageRealm extends _MessageRealm
         ),
         SchemaProperty('createdAt', RealmPropertyType.timestamp),
         SchemaProperty('updatedAt', RealmPropertyType.timestamp),
+        SchemaProperty(
+          'serverTimestamp',
+          RealmPropertyType.timestamp,
+          optional: true,
+        ),
         SchemaProperty('isPending', RealmPropertyType.bool),
+        SchemaProperty(
+          'isFromNotification',
+          RealmPropertyType.bool,
+          optional: true,
+        ),
+        SchemaProperty('isSynced', RealmPropertyType.bool, optional: true),
       ],
     );
   }();

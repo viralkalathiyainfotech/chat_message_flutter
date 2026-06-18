@@ -53,6 +53,12 @@ class NetworkConstants {
   static String messages(String userId) => '/messages/$userId';
   static const String onlineUsers = '/online-users';
   static const String allMessages = '/allMessages';
+  static const String messagesSync = '/messages/sync';
+  static String messageById(String messageId) => '/messages/message/$messageId';
+  static const String deliveredReceipts = '/messages/receipts/delivered';
+  static const String readReceipts = '/messages/receipts/read';
+  static const String replyFromNotification =
+      '/messages/reply-from-notification';
   static String deleteMessage(String messageId) => '/deleteMessage/$messageId';
   static String updateMessage(String messageId) => '/updateMessage/$messageId';
   static const String clearChat = '/clearChat';
@@ -64,6 +70,9 @@ class NetworkConstants {
   static const String devices = '/devices';
   static String device(String deviceId) => '/devices/$deviceId';
   static const String logoutDevice = '/logout-device';
+  static const String devicesRegister = '/devices/register';
+  static const String devicesUnregister = '/devices/unregister';
+  static const String devicesRefreshToken = '/devices/refresh-token';
 
   // Electron endpoints
   static const String checkElectronInstalled = '/check-electron-installed';

@@ -10,6 +10,9 @@ import 'storage_service.dart';
 import '../features/chats/domain/repositories/chat_repository.dart';
 import '../features/chats/presentation/controllers/chats_controller.dart';
 import '../features/chats/presentation/controllers/groups_controller.dart';
+import 'chat_notification_service.dart';
+import 'message_sync_service.dart';
+import 'receipt_service.dart';
 
 class SyncService extends GetxService {
   final ConnectivityService _connectivityService =
@@ -18,6 +21,14 @@ class SyncService extends GetxService {
   final StorageService _storageService = Get.find<StorageService>();
   final ChatRepository _chatRepository = Get.find<ChatRepository>();
   final RealmHelper _realmHelper = RealmHelper();
+  ReceiptService? get _receiptService =>
+      Get.isRegistered<ReceiptService>() ? Get.find<ReceiptService>() : null;
+  MessageSyncService? get _messageSyncService =>
+      Get.isRegistered<MessageSyncService>() ? Get.find<MessageSyncService>() : null;
+  ChatNotificationService? get _notificationService =>
+      Get.isRegistered<ChatNotificationService>()
+      ? Get.find<ChatNotificationService>()
+      : null;
 
   final RxnString activeChatUserId = RxnString(null);
 
@@ -33,6 +44,7 @@ class SyncService extends GetxService {
     // Listen to network changes
     ever(_connectivityService.isOnline, (bool isOnline) {
       if (isOnline && _socketService.isConnected.value) {
+        _messageSyncService?.syncMissedMessages();
         _syncOfflineMessages();
       }
     });
@@ -40,6 +52,7 @@ class SyncService extends GetxService {
     // Listen to socket connection
     ever(_socketService.isConnected, (bool isConnected) {
       if (isConnected && _connectivityService.isOnline.value) {
+        _messageSyncService?.syncMissedMessages();
         _syncOfflineMessages();
       }
     });
@@ -48,6 +61,10 @@ class SyncService extends GetxService {
     _socketService.onReceiveMessage = (data) async {
       await _chatRepository.saveIncomingMessage(data);
       final chatId = _chatIdFromMessagePayload(data);
+      final messageId = (data['_id'] ?? data['messageId'])?.toString();
+      if (messageId != null) {
+        await _receiptService?.markDelivered([messageId]);
+      }
 
       // If the user is currently on the chat detail screen with this exact user, handle read receipts and reload
       if (activeChatUserId.value != null && chatId == activeChatUserId.value) {
@@ -58,14 +75,16 @@ class SyncService extends GetxService {
           detailController.reloadMessagesLocally();
         } catch (_) {}
 
-        final messageId = data['_id'] ?? data['messageId'];
         if (messageId != null) {
           _socketService.emitMessageRead(messageId);
+          await _receiptService?.markRead(chatId: chatId ?? '', messageIds: [messageId]);
           _realmHelper.realm.write(() {
             final msg = _realmHelper.realm.find<MessageRealm>(messageId);
             if (msg != null) msg.status = 'read';
           });
         }
+      } else if (chatId != null && messageId != null) {
+        await _showForegroundNotificationIfNeeded(data, chatId, messageId);
       }
       _refreshChatsList();
     };
@@ -242,6 +261,34 @@ class SyncService extends GetxService {
         Get.find<GroupsController>().reloadLocalGroups();
       } catch (_) {}
     }
+  }
+
+  Future<void> _showForegroundNotificationIfNeeded(
+    Map<String, dynamic> data,
+    String chatId,
+    String messageId,
+  ) async {
+    final notificationService = _notificationService;
+    if (notificationService == null || !notificationService.isForeground) {
+      return;
+    }
+
+    final content = data['content'];
+    final preview = content is Map ? content['content']?.toString() ?? '' : '';
+    final sender = data['sender'] ?? data['senderId'];
+    final senderName = sender is Map
+        ? (sender['userName'] ?? sender['email'] ?? 'New message').toString()
+        : 'New message';
+    await notificationService.showChatMessageNotification(
+      chatId: chatId,
+      messageId: messageId,
+      senderName: senderName,
+      preview: preview,
+      isGroup: _realmHelper.realm.find<UserRealm>(chatId)?.isGroup == true ||
+          data['groupId'] != null ||
+          data['group'] != null,
+      senderId: _idFromPayload(data['senderId'] ?? data['sender']),
+    );
   }
 
   String? _idFromPayload(dynamic value) {

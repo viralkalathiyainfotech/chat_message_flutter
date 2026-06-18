@@ -10,8 +10,10 @@ class RealmHelper {
   RealmHelper._internal();
 
   late Realm _realm;
+  bool _isInitialized = false;
 
   void init() {
+    if (_isInitialized) return;
     final config = Configuration.local([
       UserRealm.schema,
       MessageContentRealm.schema,
@@ -19,11 +21,13 @@ class RealmHelper {
       MessageReactionRealm.schema,
       OfflineQueueRealm.schema,
       LocalContactRealm.schema,
-    ], schemaVersion: 4);
+    ], schemaVersion: 5);
     _realm = Realm(config);
+    _isInitialized = true;
   }
 
   Realm get realm => _realm;
+  bool get isInitialized => _isInitialized;
 
   // --- Users ---
   void saveUsers(List<UserRealm> users) {
@@ -85,6 +89,16 @@ class RealmHelper {
             status: oldMsg.content!.status,
           ) : null,
           reactions: oldMsg.reactions.map((r) => MessageReactionRealm(r.emoji, r.userIdsJson)).toList(),
+          serverId: newId,
+          chatId: oldMsg.chatId,
+          deliveryStatus: status,
+          readStatus: oldMsg.readStatus,
+          eventId: oldMsg.eventId,
+          messageType: oldMsg.messageType,
+          preview: oldMsg.preview,
+          serverTimestamp: oldMsg.serverTimestamp,
+          isFromNotification: oldMsg.isFromNotification,
+          isSynced: oldMsg.isSynced,
         );
         _realm.delete(oldMsg);
         _realm.add(newMsg, update: true);

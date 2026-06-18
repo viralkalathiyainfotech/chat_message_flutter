@@ -42,15 +42,25 @@ class _MessageReactionRealm {
 class _MessageRealm {
   @PrimaryKey()
   late String id;
+  late String? serverId;
+  late String? chatId;
   late String senderId;
   late String receiverId;
   late _MessageContentRealm? content;
   late String status; // "sent", "delivered", "read", "deleted"
+  late String? deliveryStatus;
+  late String? readStatus;
+  late String? eventId;
+  late String? messageType;
+  late String? preview;
   late bool edited;
   late List<_MessageReactionRealm> reactions;
   late DateTime createdAt;
   late DateTime updatedAt;
+  late DateTime? serverTimestamp;
   late bool isPending; // For offline queued messages
+  late bool? isFromNotification;
+  late bool? isSynced;
 }
 
 @RealmModel()

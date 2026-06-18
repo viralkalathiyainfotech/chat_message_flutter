@@ -10,6 +10,7 @@ import '../../../../core/database/realm_models.dart';
 import '../../domain/repositories/chat_repository.dart';
 import '../../../../services/socket_service.dart';
 import '../../../../utils/encryption_util.dart';
+import '../../../../services/receipt_service.dart';
 
 class ChatDetailController extends GetxController {
   final ChatRepository _chatRepository = Get.find<ChatRepository>();
@@ -175,6 +176,12 @@ class ChatDetailController extends GetxController {
 
       if (isUnread) {
         _socketService.emitMessageRead(msg.id);
+        if (Get.isRegistered<ReceiptService>()) {
+          Get.find<ReceiptService>().markRead(
+            chatId: remoteUser.id,
+            messageIds: [msg.id],
+          );
+        }
         _chatRepository.updateMessageStatusLocally(msg.id, 'read');
       }
     }

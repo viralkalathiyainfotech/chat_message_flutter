@@ -360,6 +360,17 @@ class ChatRepository {
         false,
         content: contentRealm,
         reactions: parsedReactions,
+        serverId: data['_id']?.toString() ?? data['messageId']?.toString(),
+        chatId: chatId,
+        deliveryStatus: data['status']?.toString(),
+        readStatus: data['status']?.toString() == 'read' ? 'read' : null,
+        eventId: data['eventId']?.toString(),
+        messageType: contentData['type']?.toString() ?? 'text',
+        preview: contentData['content']?.toString(),
+        serverTimestamp:
+            DateTime.tryParse(data['createdAt']?.toString() ?? ''),
+        isFromNotification: data['isFromNotification'] == true,
+        isSynced: data['isSynced'] != false,
       );
 
       _realmHelper.saveMessage(newMsg);
