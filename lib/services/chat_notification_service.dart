@@ -32,6 +32,10 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
   bool _initialized = false;
   bool _isForeground = true;
 
+  // Cache to retain incoming messages in memory per chat session.
+  // Format: { chatId: [Message, Message, ...] }
+  final Map<String, List<Message>> _chatHistoryCache = {};
+
   bool get isForeground => _isForeground;
 
   Future<void> initialize() async {
@@ -96,10 +100,45 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
       'chatName': chatName,
       'isGroup': isGroup,
     });
-    final title = isGroup && chatName != null
-        ? '$chatName: $senderName'
-        : senderName;
-    final notificationId = messageId.hashCode & 0x7fffffff;
+
+    // 1. Group notifications by chat instead of sender
+    final notificationId = chatId.hashCode & 0x7fffffff;
+    final String currentText = preview.isEmpty ? 'New message' : preview;
+
+    // 2. Build or fetch historical message thread
+    if (!_chatHistoryCache.containsKey(chatId)) {
+      _chatHistoryCache[chatId] = [];
+    }
+    
+    final person = Person(
+      key: senderId ?? senderName,
+      name: senderName,
+    );
+
+    // Append the newly arrived message to the thread
+    _chatHistoryCache[chatId]!.add(
+      Message(
+        currentText,
+        DateTime.now(),
+        person,
+      ),
+    );
+
+    // Limit cache sizes to the last 20 messages to prevent memory bloating
+    if (_chatHistoryCache[chatId]!.length > 20) {
+      _chatHistoryCache[chatId]!.removeAt(0);
+    }
+
+    // 3. Assemble native Android Conversation Style
+    final messagingStyle = MessagingStyleInformation(
+      Person(
+        key: 'current_user', 
+        name: 'Me', // App recipient persona
+      ),
+      conversationTitle: isGroup ? chatName : null,
+      groupConversation: isGroup,
+      messages: _chatHistoryCache[chatId]!,
+    );
 
     const replyInput = AndroidNotificationActionInput(label: 'Message');
     final android = AndroidNotificationDetails(
@@ -109,7 +148,9 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
       importance: Importance.high,
       priority: Priority.high,
       category: AndroidNotificationCategory.message,
-      groupKey: 'chat_$chatId',
+      styleInformation: messagingStyle, // Inject style here
+      onlyAlertOnce: false, // Ensures audio alerts play on new subsequent texts
+      groupKey: 'chat_global_group', // Native Android summary bundling
       actions: const [
         AndroidNotificationAction(
           replyActionId,
@@ -132,19 +173,26 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
 
     const darwin = DarwinNotificationDetails(
       categoryIdentifier: 'chat_message',
+      // Note: On iOS, system stack bundling automatically manages subsequent 
+      // messages when notificationId/threadIdentifier is consistent.
     );
+
+    // Determine the visible fallback summary text titles
+    final collapsedTitle = isGroup && chatName != null ? chatName : senderName;
 
     await _plugin.show(
       notificationId,
-      title,
-      preview.isEmpty ? 'New message' : preview,
+      collapsedTitle,
+      currentText,
       NotificationDetails(android: android, iOS: darwin, macOS: darwin),
       payload: payload,
     );
   }
 
-  Future<void> cancelChatNotification(String messageId) async {
-    await _plugin.cancel(messageId.hashCode & 0x7fffffff);
+  // Clear tracking records when a chat context is dismissed or read
+  Future<void> cancelChatNotification(String chatId) async {
+    _chatHistoryCache.remove(chatId);
+    await _plugin.cancel(chatId.hashCode & 0x7fffffff);
   }
 
   void _handleResponse(NotificationResponse response) {
@@ -152,6 +200,16 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
   }
 
   Future<void> _handleResponseAsync(NotificationResponse response) async {
+    if (response.payload != null) {
+      try {
+        final data = jsonDecode(response.payload!);
+        if (data['chatId'] != null) {
+          // Clear active notifications and cache once user engages
+          await cancelChatNotification(data['chatId']);
+        }
+      } catch (_) {}
+    }
+
     if (response.actionId == replyActionId ||
         response.actionId == markReadActionId) {
       await BackgroundMessageProcessor.handleNotificationAction(
@@ -176,6 +234,7 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
 
   @override
   void onClose() {
+    _chatHistoryCache.clear();
     WidgetsBinding.instance.removeObserver(this);
     super.onClose();
   }

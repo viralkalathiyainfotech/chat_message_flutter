@@ -39,7 +39,7 @@ class BackgroundMessageProcessor {
     await ensureBackgroundServices();
     
     final data = message.data;
-    if ((data['type'] ?? data['message_type']) != 'chat_message') return;
+    if ((data['type'] ?? data['content_type']) != 'chat_message') return;
 
     final payload = await _messagePayload(data);
     if (payload == null) return;
@@ -178,7 +178,7 @@ class BackgroundMessageProcessor {
       'receiverId': data['receiver_id'],
       'groupId': data['is_group'] == 'true' ? data['chat_id'] : null,
       'content': {
-        'type': data['message_type'] ?? 'text',
+        'type': data['content_type'] ?? 'text',
         'content': data['preview'] ?? '',
       },
       'status': 'delivered',
@@ -201,7 +201,7 @@ class BackgroundMessageProcessor {
         : data['preview']?.toString() ?? '';
     final preview = _notificationPreview(
       encryptedPreview,
-      messageType: data['message_type']?.toString(),
+      messageType: data['content_type']?.toString(),
     );
 
     await Get.find<ChatNotificationService>().showChatMessageNotification(
