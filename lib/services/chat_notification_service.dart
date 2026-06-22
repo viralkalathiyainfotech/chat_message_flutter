@@ -72,13 +72,15 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
           chatNotificationBackgroundHandler,
     );
 
+    _initialized = true;
+  }
+
+  Future<void> requestPermissions() async {
     await _plugin
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
         >()
         ?.requestNotificationsPermission();
-
-    _initialized = true;
   }
 
   Future<void> showChatMessageNotification({
@@ -109,19 +111,12 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
     if (!_chatHistoryCache.containsKey(chatId)) {
       _chatHistoryCache[chatId] = [];
     }
-    
-    final person = Person(
-      key: senderId ?? senderName,
-      name: senderName,
-    );
+
+    final person = Person(key: senderId ?? senderName, name: senderName);
 
     // Append the newly arrived message to the thread
     _chatHistoryCache[chatId]!.add(
-      Message(
-        currentText,
-        DateTime.now(),
-        person,
-      ),
+      Message(currentText, DateTime.now(), person),
     );
 
     // Limit cache sizes to the last 20 messages to prevent memory bloating
@@ -132,7 +127,7 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
     // 3. Assemble native Android Conversation Style
     final messagingStyle = MessagingStyleInformation(
       Person(
-        key: 'current_user', 
+        key: 'current_user',
         name: 'Me', // App recipient persona
       ),
       conversationTitle: isGroup ? chatName : null,
@@ -158,14 +153,14 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
           inputs: [replyInput],
           allowGeneratedReplies: true,
           semanticAction: SemanticAction.reply,
-          showsUserInterface: true,
+          showsUserInterface: false,
           cancelNotification: true,
         ),
         AndroidNotificationAction(
           markReadActionId,
           'Mark as read',
           semanticAction: SemanticAction.markAsRead,
-          showsUserInterface: true,
+          showsUserInterface: false,
           cancelNotification: true,
         ),
       ],
@@ -173,7 +168,7 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
 
     const darwin = DarwinNotificationDetails(
       categoryIdentifier: 'chat_message',
-      // Note: On iOS, system stack bundling automatically manages subsequent 
+      // Note: On iOS, system stack bundling automatically manages subsequent
       // messages when notificationId/threadIdentifier is consistent.
     );
 
@@ -232,7 +227,7 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
     _isForeground = state == AppLifecycleState.resumed;
   }
 
-  @override
+  @override 
   void onClose() {
     _chatHistoryCache.clear();
     WidgetsBinding.instance.removeObserver(this);

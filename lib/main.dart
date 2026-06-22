@@ -47,6 +47,7 @@ void main() async {
   Get.put(NotificationNavigationService());
   Get.put(ChatNotificationService());
   await Get.find<ChatNotificationService>().initialize();
+  await Get.find<ChatNotificationService>().requestPermissions();
   Get.put(MessageSyncService());
   Get.put(CallService());
   Get.put(CallOverlayService());

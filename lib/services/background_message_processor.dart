@@ -24,6 +24,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   DartPluginRegistrant.ensureInitialized();
   try {
     await Firebase.initializeApp();
+    await BackgroundMessageProcessor.ensureBackgroundServices();
   } catch (_) {}
   await BackgroundMessageProcessor.processRemoteMessage(
     message,
@@ -84,7 +85,6 @@ class BackgroundMessageProcessor {
         return;
       }
 
-      await _cancelActionNotification(messageId);
 
       if (actionId == ChatNotificationService.replyActionId) {
         final replyText = input?.trim();
@@ -112,6 +112,7 @@ class BackgroundMessageProcessor {
           'messageId': messageId,
         });
       }
+      await _cancelActionNotification(messageId);
     } catch (e) {
       await _recordActionTrace(actionId, 'failed', extra: {
         'chatId': chatId,
