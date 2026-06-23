@@ -174,9 +174,17 @@ class CallController extends GetxController {
     await callService.acceptCall();
   }
 
-  void declineIncomingCall() {
+  void declineIncomingCall() async {
     if (!callService.isReceivingCall.value) return;
-    _notificationService.stopIncomingCall();
+    final shouldCloseIncomingScreen =
+        isIncomingCallScreenVisible.value ||
+            Get.currentRoute == _incomingCallRouteName;
+    if (!shouldCloseIncomingScreen) {
+      if (callService.incomingCallData?['type'] == 'video') {
+        await callService.prepareIncomingVideoPreview();
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+    }
     _closeIncomingCallScreen();
     callService.declineCall();
   }
