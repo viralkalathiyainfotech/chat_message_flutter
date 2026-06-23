@@ -12,7 +12,6 @@ import 'chat_notification_service.dart';
 import 'message_sync_service.dart';
 import 'notification_navigation_service.dart';
 import 'storage_service.dart';
-import 'sync_service.dart';
 
 class PushNotificationService extends GetxService {
   PushNotificationService({
@@ -87,13 +86,7 @@ class PushNotificationService extends GetxService {
 
   bool _shouldShowForegroundNotification(RemoteMessage message) {
     if (!Get.isRegistered<ChatNotificationService>()) return false;
-    if (!Get.find<ChatNotificationService>().isForeground) return true;
-
-    final chatId = message.data['chat_id']?.toString();
-    if (chatId == null || chatId.isEmpty || !Get.isRegistered<SyncService>()) {
-      return true;
-    }
-    return Get.find<SyncService>().activeChatUserId.value != chatId;
+    return !Get.find<ChatNotificationService>().isForeground;
   }
 
   Future<void> _registerToken(String token) async {

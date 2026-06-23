@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:chat_app/constants/string_constants.dart';
 import 'package:chat_app/core/network/api_service.dart';
 import 'package:chat_app/core/theme/app_theme.dart';
@@ -61,16 +63,30 @@ void main() async {
   Get.put(PushNotificationService());
   await Get.find<PushNotificationService>().initialize();
 
-  runApp(const MyApp());
+  final wasLaunchedFromCallNotification = await Get.find<ChatNotificationService>()
+      .hasInitialCallNotificationLaunch();
+  final initialRoute =
+      wasLaunchedFromCallNotification && Get.find<StorageService>().isLoggedIn
+          ? AppRoutes.home
+          : AppRoutes.splash;
+
+  runApp(MyApp(initialRoute: initialRoute));
   WidgetsBinding.instance.addPostFrameCallback((_) {
     if (Get.isRegistered<NotificationNavigationService>()) {
       Get.find<NotificationNavigationService>().markReady();
+    }
+    if (Get.isRegistered<ChatNotificationService>()) {
+      unawaited(
+        Get.find<ChatNotificationService>().handleInitialNotificationLaunch(),
+      );
     }
   });
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({super.key, required this.initialRoute});
+
+  final String initialRoute;
 
   @override
   Widget build(BuildContext context) {
@@ -81,7 +97,7 @@ class MyApp extends StatelessWidget {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: themeController.themeMode,
-      initialRoute: AppRoutes.splash,
+      initialRoute: initialRoute,
       getPages: AppPages.pages,
       debugShowCheckedModeBanner: false,
       builder: (context, child) {

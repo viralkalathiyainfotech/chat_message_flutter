@@ -69,26 +69,27 @@ class SyncService extends GetxService {
 
       final isAppForeground = _notificationService?.isForeground ?? true;
 
-      // Only suppress notifications/read immediately when the app is actually visible.
-      // Android can keep the socket alive briefly after backgrounding, while the chat
-      // route is still mounted and activeChatUserId is still set.
-      if (isAppForeground &&
-          activeChatUserId.value != null &&
-          chatId == activeChatUserId.value) {
-        try {
-          final detailController = Get.find<ChatDetailController>(
-            tag: activeChatUserId.value,
-          );
-          detailController.reloadMessagesLocally();
-        } catch (_) {}
+      if (isAppForeground) {
+        if (activeChatUserId.value != null &&
+            chatId == activeChatUserId.value) {
+          try {
+            final detailController = Get.find<ChatDetailController>(
+              tag: activeChatUserId.value,
+            );
+            detailController.reloadMessagesLocally();
+          } catch (_) {}
 
-        if (messageId != null) {
-          _socketService.emitMessageRead(messageId);
-          await _receiptService?.markRead(chatId: chatId ?? '', messageIds: [messageId]);
-          _realmHelper.realm.write(() {
-            final msg = _realmHelper.realm.find<MessageRealm>(messageId);
-            if (msg != null) msg.status = 'read';
-          });
+          if (messageId != null) {
+            _socketService.emitMessageRead(messageId);
+            await _receiptService?.markRead(
+              chatId: chatId ?? '',
+              messageIds: [messageId],
+            );
+            _realmHelper.realm.write(() {
+              final msg = _realmHelper.realm.find<MessageRealm>(messageId);
+              if (msg != null) msg.status = 'read';
+            });
+          }
         }
       } else if (chatId != null && messageId != null) {
         await _showForegroundNotificationIfNeeded(data, chatId, messageId);

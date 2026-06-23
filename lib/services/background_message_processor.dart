@@ -40,6 +40,14 @@ class BackgroundMessageProcessor {
     await ensureBackgroundServices();
     
     final data = message.data;
+    if (_isIncomingCallPush(data)) {
+      if (showNotification) {
+        await Get.find<ChatNotificationService>()
+            .showIncomingCallNotificationFromPush(data);
+      }
+      return;
+    }
+
     if ((data['type'] ?? data['content_type']) != 'chat_message') return;
 
     final payload = await _messagePayload(data);
@@ -54,6 +62,37 @@ class BackgroundMessageProcessor {
     if (showNotification) {
       await _showNotification(payload, data);
     }
+  }
+
+  static bool _isIncomingCallPush(Map<String, dynamic> data) {
+    final event = (data['event'] ??
+            data['call_event'] ??
+            data['notification_type'] ??
+            data['type'])
+        ?.toString()
+        .toLowerCase();
+    if (event == 'call-requested' ||
+        event == 'call-invited' ||
+        event == 'incoming_call' ||
+        event == 'call_request' ||
+        event == 'call_invite') {
+      return true;
+    }
+
+    final hasCallShape =
+        (data['roomId'] != null || data['room_id'] != null) &&
+            (data['fromEmail'] != null ||
+                data['from_email'] != null ||
+                data['caller_id'] != null ||
+                data['sender_id'] != null);
+    final mediaType = (data['callType'] ??
+            data['call_type'] ??
+            data['mediaType'] ??
+            data['media_type'] ??
+            data['type'])
+        ?.toString()
+        .toLowerCase();
+    return hasCallShape && (mediaType == 'video' || mediaType == 'audio');
   }
 
   static Future<void> handleNotificationAction({

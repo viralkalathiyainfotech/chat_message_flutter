@@ -3,6 +3,7 @@ package com.example.chat_app
 import android.app.PictureInPictureParams
 import android.app.PendingIntent
 import android.app.RemoteAction
+import android.app.ActivityManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -11,11 +12,14 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.drawable.Icon
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.util.Rational
+import android.view.WindowManager
 import com.example.chat_app.call.CallForegroundService
+import com.example.chat_app.call.CallNotificationHelper
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -29,10 +33,13 @@ class MainActivity : FlutterActivity() {
     private var hasPendingOpenCall = false
     private var pendingOpenCallAttempts = 0
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val callNotificationHelper by lazy { CallNotificationHelper(this) }
 
     private val callActionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
+                ACTION_ANSWER_CALL -> answerIncomingCall()
+                ACTION_DECLINE_CALL -> declineIncomingCall()
                 ACTION_HANGUP_CALL -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode) {
                         pipChannel?.invokeMethod("hangupCall", null)
@@ -46,8 +53,14 @@ class MainActivity : FlutterActivity() {
                 ACTION_TOGGLE_MIC -> invokeCallControl("toggleAudio")
                 ACTION_TOGGLE_CAMERA -> invokeCallControl("toggleVideo")
                 ACTION_OPEN_CALL -> openCallScreen()
+                ACTION_OPEN_INCOMING_CALL -> openIncomingCallScreen()
             }
         }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        applyIncomingCallWindowFlagsIfNeeded(intent)
+        super.onCreate(savedInstanceState)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -109,6 +122,20 @@ class MainActivity : FlutterActivity() {
                             stopOngoingCall()
                             result.success(null)
                         }
+                        "showIncomingCall" -> {
+                            val args = call.arguments as? Map<*, *> ?: emptyMap<String, Any>()
+                            showIncomingCall(
+                                title = args["title"] as? String ?: "Incoming call",
+                                body = args["body"] as? String ?: "Tap to answer",
+                                callerName = args["callerName"] as? String ?: "Unknown caller",
+                                isVideo = args["isVideo"] as? Boolean ?: false,
+                            )
+                            result.success(null)
+                        }
+                        "stopIncomingCall" -> {
+                            stopIncomingCall()
+                            result.success(null)
+                        }
                         else -> result.notImplemented()
                     }
                 }
@@ -123,6 +150,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        applyIncomingCallWindowFlagsIfNeeded(intent)
         setIntent(intent)
         handleCallIntent(intent)
     }
@@ -149,10 +177,13 @@ class MainActivity : FlutterActivity() {
 
     private fun registerCallActionReceiver() {
         val filter = IntentFilter().apply {
+            addAction(ACTION_ANSWER_CALL)
+            addAction(ACTION_DECLINE_CALL)
             addAction(ACTION_HANGUP_CALL)
             addAction(ACTION_TOGGLE_MIC)
             addAction(ACTION_TOGGLE_CAMERA)
             addAction(ACTION_OPEN_CALL)
+            addAction(ACTION_OPEN_INCOMING_CALL)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(callActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -162,10 +193,15 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun handleCallIntent(intent: Intent?) {
-        if (intent?.action == ACTION_OPEN_CALL) {
-            hasPendingOpenCall = true
-            pendingOpenCallAttempts = 0
-            openCallScreen()
+        when (intent?.action) {
+            ACTION_OPEN_CALL -> {
+                hasPendingOpenCall = true
+                pendingOpenCallAttempts = 0
+                openCallScreen()
+            }
+            ACTION_OPEN_INCOMING_CALL -> openIncomingCallScreen()
+            ACTION_ANSWER_CALL -> answerIncomingCall()
+            ACTION_DECLINE_CALL -> declineIncomingCall()
         }
     }
 
@@ -193,6 +229,47 @@ class MainActivity : FlutterActivity() {
                 },
             )
         }
+    }
+
+    private fun openIncomingCallScreen() {
+        notificationChannel?.invokeMethod("openIncomingCallScreen", null)
+    }
+
+    private fun openIncomingCallActivity() {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            action = ACTION_OPEN_INCOMING_CALL
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        applyIncomingCallWindowFlagsIfNeeded(intent)
+        bringCurrentTaskToFront()
+        runCatching {
+            startActivity(intent)
+        }.onFailure {
+            Log.w("MainActivity", "Unable to launch incoming call screen directly", it)
+            openIncomingCallScreen()
+        }
+        mainHandler.postDelayed({ openIncomingCallScreen() }, INCOMING_CALL_OPEN_DELAY_MS)
+    }
+
+    private fun bringCurrentTaskToFront() {
+        runCatching {
+            val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            activityManager.moveTaskToFront(taskId, ActivityManager.MOVE_TASK_WITH_HOME)
+        }.onFailure {
+            Log.w("MainActivity", "Unable to move call task to front", it)
+        }
+    }
+
+    private fun answerIncomingCall() {
+        stopIncomingCall()
+        notificationChannel?.invokeMethod("answerIncomingCall", null)
+    }
+
+    private fun declineIncomingCall() {
+        stopIncomingCall()
+        notificationChannel?.invokeMethod("declineIncomingCall", null)
     }
 
     private fun retryOpenCallScreen() {
@@ -297,6 +374,39 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun applyIncomingCallWindowFlagsIfNeeded(intent: Intent?) {
+        val action = intent?.action
+        if (action != ACTION_OPEN_INCOMING_CALL && action != ACTION_ANSWER_CALL) return
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+            )
+        }
+    }
+
+    private fun clearIncomingCallWindowFlags() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(false)
+            setTurnScreenOn(false)
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            @Suppress("DEPRECATION")
+            window.clearFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+            )
+        }
+    }
+
     private fun showOngoingCall(
         title: String,
         body: String,
@@ -323,6 +433,22 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun showIncomingCall(
+        title: String,
+        body: String,
+        callerName: String,
+        isVideo: Boolean,
+    ) {
+        callNotificationHelper.createNotificationChannel()
+        callNotificationHelper.showIncomingCallNotification(
+            title = title,
+            body = body,
+            callerName = callerName,
+            isVideo = isVideo,
+        )
+        mainHandler.post { openIncomingCallActivity() }
+    }
+
     private fun stopOngoingCall() {
         val serviceIntent = Intent(this, CallForegroundService::class.java).apply {
             action = CallForegroundService.ACTION_STOP
@@ -330,14 +456,23 @@ class MainActivity : FlutterActivity() {
         startService(serviceIntent)
     }
 
+    private fun stopIncomingCall() {
+        callNotificationHelper.cancelIncomingCallNotification()
+        clearIncomingCallWindowFlags()
+    }
+
     companion object {
         private const val PIP_CHANNEL = "app.call/pip"
         private const val NOTIFICATION_CHANNEL = "app.call/notification"
+        const val ACTION_ANSWER_CALL = "com.example.chat_app.action.ANSWER_CALL"
+        const val ACTION_DECLINE_CALL = "com.example.chat_app.action.DECLINE_CALL"
         const val ACTION_HANGUP_CALL = "com.example.chat_app.action.HANGUP_CALL"
         const val ACTION_TOGGLE_MIC = "com.example.chat_app.action.TOGGLE_MIC"
         const val ACTION_TOGGLE_CAMERA = "com.example.chat_app.action.TOGGLE_CAMERA"
         const val ACTION_OPEN_CALL = "com.example.chat_app.action.OPEN_CALL"
+        const val ACTION_OPEN_INCOMING_CALL = "com.example.chat_app.action.OPEN_INCOMING_CALL"
         private const val OPEN_CALL_RETRY_DELAY_MS = 300L
+        private const val INCOMING_CALL_OPEN_DELAY_MS = 120L
         private const val MAX_OPEN_CALL_ATTEMPTS = 10
     }
 }

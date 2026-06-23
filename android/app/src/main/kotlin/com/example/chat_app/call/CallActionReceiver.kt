@@ -9,6 +9,8 @@ class CallActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
         if (
+            action != MainActivity.ACTION_ANSWER_CALL &&
+            action != MainActivity.ACTION_DECLINE_CALL &&
             action != MainActivity.ACTION_HANGUP_CALL &&
             action != MainActivity.ACTION_TOGGLE_MIC &&
             action != MainActivity.ACTION_TOGGLE_CAMERA

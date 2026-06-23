@@ -55,6 +55,33 @@ class CallService extends GetxService {
   Set<String> callParticipants = {}; // The current participants
   final Set<String> _activeParticipantIds = {};
 
+  String get callDisplayName {
+    final payload = incomingCallData;
+    if (isGroupCall) {
+      final groupId = _idFromPayloadValue(payload?['groupId']) ?? remoteUserId;
+      return _nameFromPayload(payload, const [
+            'groupName',
+            'chatName',
+            'name',
+            'userName',
+          ]) ??
+          _nameForUserId(groupId) ??
+          'Group call';
+    }
+
+    final callerId = _idFromPayloadValue(payload?['fromEmail']) ?? remoteUserId;
+    return _nameFromPayload(payload, const [
+          'callerName',
+          'fromName',
+          'senderName',
+          'userName',
+          'name',
+        ]) ??
+        _nameForUserId(callerId) ??
+        callerId ??
+        'Unknown caller';
+  }
+
   @override
   void onInit() {
     super.onInit();
@@ -64,25 +91,7 @@ class CallService extends GetxService {
 
   void _setupSocketListeners() {
     _socketService.onIncomingCall = (data) {
-      if (isInCall.value || isCalling.value) {
-        // Already in a call, ignore
-        return;
-      }
-      incomingCallData = data;
-      remoteUserId = data['groupId'] ?? data['fromEmail'];
-      currentRoomId = data['roomId'];
-      isIncoming = true;
-      isVideoCall = data['type'] == 'video';
-      isGroupCall = data['isGroupCall'] == true;
-      if (data['participants'] != null) {
-        callParticipants = _normalizeParticipantIds(data['participants']);
-      }
-      if (isGroupCall && remoteUserId != null) {
-        callParticipants.addAll(_memberIdsFromGroup(remoteUserId!));
-      }
-      final currentUserId = _storageService.getUserId();
-      if (currentUserId != null) callParticipants.add(currentUserId);
-      isReceivingCall.value = true;
+      _setIncomingCall(data);
     };
 
     _socketService.onCallAccepted = (data) async {
@@ -217,6 +226,103 @@ class CallService extends GetxService {
     };
   }
 
+  bool restoreIncomingCallFromPush(Map<String, dynamic> data) {
+    final normalized = _normalizeIncomingCallPushData(data);
+    if (normalized == null) return false;
+    return _setIncomingCall(normalized);
+  }
+
+  bool _setIncomingCall(Map<String, dynamic> data) {
+    if (isInCall.value || isCalling.value) {
+      // Already in a call, ignore
+      return false;
+    }
+    incomingCallData = data;
+    remoteUserId = data['groupId'] ?? data['fromEmail'];
+    currentRoomId = data['roomId'];
+    isIncoming = true;
+    isVideoCall = data['type'] == 'video';
+    isGroupCall = data['isGroupCall'] == true;
+    if (data['participants'] != null) {
+      callParticipants = _normalizeParticipantIds(data['participants']);
+    }
+    if (isGroupCall && remoteUserId != null) {
+      callParticipants.addAll(_memberIdsFromGroup(remoteUserId!));
+    }
+    final currentUserId = _storageService.getUserId();
+    if (currentUserId != null) callParticipants.add(currentUserId);
+    isReceivingCall.value = true;
+    return true;
+  }
+
+  Map<String, dynamic>? _normalizeIncomingCallPushData(
+    Map<String, dynamic> data,
+  ) {
+    final fromEmail = _idFromPayloadValue(
+      data['fromEmail'] ??
+          data['from_email'] ??
+          data['callerId'] ??
+          data['caller_id'] ??
+          data['sender_id'] ??
+          data['senderId'],
+    );
+    final roomId = _idFromPayloadValue(
+      data['roomId'] ?? data['room_id'] ?? data['callId'] ?? data['call_id'],
+    );
+    if (fromEmail == null || roomId == null) return null;
+
+    final mediaType = _callMediaType(data);
+    final signal = _decodePushValue(data['signal']);
+    final participants = _decodePushValue(data['participants']);
+    final groupId = _idFromPayloadValue(
+      data['groupId'] ?? data['group_id'] ?? data['chat_id'],
+    );
+
+    final normalized = <String, dynamic>{
+      ...data,
+      'fromEmail': fromEmail,
+      'roomId': roomId,
+      'type': mediaType,
+      'isGroupCall': _boolFromPayload(
+        data['isGroupCall'] ?? data['is_group_call'] ?? data['is_group'],
+      ),
+    };
+    if (signal != null) normalized['signal'] = signal;
+    if (participants != null) normalized['participants'] = participants;
+    if (groupId != null) normalized['groupId'] = groupId;
+    return normalized;
+  }
+
+  String _callMediaType(Map<String, dynamic> data) {
+    final value = (data['callType'] ??
+            data['call_type'] ??
+            data['mediaType'] ??
+            data['media_type'] ??
+            data['type'])
+        ?.toString()
+        .toLowerCase();
+    if (value == 'audio' || value == 'voice') return 'audio';
+    return 'video';
+  }
+
+  bool _boolFromPayload(dynamic value) {
+    if (value is bool) return value;
+    final text = value?.toString().toLowerCase();
+    return text == 'true' || text == '1' || text == 'yes';
+  }
+
+  dynamic _decodePushValue(dynamic value) {
+    if (value is! String) return value;
+    final text = value.trim();
+    if (text.isEmpty) return null;
+    if (!text.startsWith('{') && !text.startsWith('[')) return value;
+    try {
+      return jsonDecode(text);
+    } catch (_) {
+      return value;
+    }
+  }
+
   Future<bool> makeCall(
     String targetId, {
     bool video = true,
@@ -322,7 +428,12 @@ class CallService extends GetxService {
     if (incomingCallData == null) return;
 
     final bool isVideo = incomingCallData!['type'] == 'video';
-    await _initLocalStream(video: isVideo);
+    if (localStream == null || !hasLocalStream.value) {
+      await _initLocalStream(video: isVideo);
+    } else {
+      await selectPreferredAudioOutput();
+    }
+    await _socketService.ensureConnected();
 
     isReceivingCall.value = false;
     isInCall.value = true;
@@ -339,6 +450,12 @@ class CallService extends GetxService {
       _announceParticipantJoined();
       await _connectKnownGroupParticipants(callerId);
     }
+  }
+
+  Future<void> prepareIncomingVideoPreview() async {
+    if (incomingCallData?['type'] != 'video') return;
+    if (localStream != null && hasLocalStream.value) return;
+    await _initLocalStream(video: true);
   }
 
   Future<void> _initLocalStream({required bool video}) async {
@@ -1108,7 +1225,7 @@ class CallService extends GetxService {
 
     try {
       final typeLabel = isVideoCall ? 'Video call' : 'Voice call';
-      final remoteName = remoteUserId ?? 'Active call';
+      final remoteName = callDisplayName;
       await _notificationChannel.invokeMethod<void>('showOngoingCall', {
         'title': typeLabel,
         'body': '$remoteName • ongoing',
@@ -1126,6 +1243,60 @@ class CallService extends GetxService {
         isError: true,
       );
     }
+  }
+
+  String? _nameForUserId(String? userId) {
+    if (userId == null || userId.isEmpty || !RealmHelper().isInitialized) {
+      return null;
+    }
+
+    final user = RealmHelper().realm.find<UserRealm>(userId);
+    final displayName = user?.userName ?? user?.email ?? user?.mobileNumber;
+    if (displayName == null || displayName.trim().isEmpty) return null;
+    return displayName.trim();
+  }
+
+  String? _nameFromPayload(Map<String, dynamic>? payload, List<String> keys) {
+    if (payload == null) return null;
+
+    for (final key in keys) {
+      final value = payload[key];
+      final text = _stringFromValue(value);
+      if (text != null) return text;
+    }
+
+    for (final key in const ['from', 'caller', 'sender', 'group', 'chat']) {
+      final nested = payload[key];
+      if (nested is Map) {
+        final text = _nameFromDynamicMap(nested);
+        if (text != null) return text;
+      }
+    }
+
+    return null;
+  }
+
+  String? _nameFromDynamicMap(Map<dynamic, dynamic> value) {
+    for (final key in const ['userName', 'name', 'groupName', 'email']) {
+      final text = _stringFromValue(value[key]);
+      if (text != null) return text;
+    }
+    return null;
+  }
+
+  String? _stringFromValue(dynamic value) {
+    if (value == null || value is Map || value is Iterable) return null;
+    final text = value.toString().trim();
+    return text.isEmpty ? null : text;
+  }
+
+  String? _idFromPayloadValue(dynamic value) {
+    if (value == null) return null;
+    if (value is Map) {
+      return (value['_id'] ?? value['id'])?.toString();
+    }
+    final text = value.toString();
+    return text.isEmpty ? null : text;
   }
 
   void _resetCallState() {

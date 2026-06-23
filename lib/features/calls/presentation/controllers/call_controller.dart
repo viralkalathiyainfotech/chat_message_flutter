@@ -5,9 +5,12 @@ import '../../../../services/call_notification_service.dart';
 import '../../../../services/call_overlay_service.dart';
 import '../../../../services/call_pip_service.dart';
 import '../views/call_screen.dart';
+import '../views/incoming_call_screen.dart';
 import 'dart:async';
 
 class CallController extends GetxController {
+  static const String _incomingCallRouteName = '/IncomingCallScreen';
+
   final CallService callService = Get.find<CallService>();
   final CallOverlayService _overlayService = Get.find<CallOverlayService>();
   final CallPipService _pipService = Get.find<CallPipService>();
@@ -16,10 +19,14 @@ class CallController extends GetxController {
 
   final RxString callDuration = '00:00'.obs;
   final RxBool isFullCallScreenVisible = false.obs;
+  final RxBool isIncomingCallScreenVisible = false.obs;
   final RxBool isMinimizingToOverlay = false.obs;
   RxBool get isInPipMode => _pipService.isInPipMode;
   Timer? _callTimer;
   int _seconds = 0;
+  Worker? _notificationVisibilityWorker;
+
+  bool get _hasNavigator => Get.key.currentState != null;
 
   void _startTimer() {
     _seconds = 0;
@@ -40,6 +47,7 @@ class CallController extends GetxController {
   @override
   void onClose() {
     _stopTimer();
+    _notificationVisibilityWorker?.dispose();
     super.onClose();
   }
 
@@ -50,37 +58,37 @@ class CallController extends GetxController {
     // Listen for incoming calls
     ever(callService.isReceivingCall, (bool isReceiving) {
       if (isReceiving && callService.incomingCallData != null) {
-        // Force close any existing dialogs to ensure the incoming call is visible
-        if (Get.isDialogOpen ?? false) {
-          Get.back();
-        }
-        Future.microtask(() => _showIncomingCallOverlay());
+        _presentIncomingCall();
       } else {
-        if (Get.isDialogOpen ?? false) {
-          Get.back(); // Dismiss incoming call dialog if dismissed from backend
-        }
+        _notificationService.stopIncomingCall();
+        _closeIncomingCallScreen();
       }
     });
 
     // Listen for accepted/outgoing active calls
     ever(callService.isInCall, (bool isInCall) {
       if (isInCall) {
+        _notificationService.stopIncomingCall();
         _startTimer();
         _pipService.setCallActive(
           callService.isVideoCall,
           audioEnabled: callService.isAudioEnabled.value,
           videoEnabled: callService.isVideoEnabled.value,
         );
-        _showOrUpdateNotification();
+        if (_notificationService.shouldShowSystemNotifications) {
+          _showOrUpdateNotification();
+        }
         openCallScreen();
       } else {
         _stopTimer();
         _overlayService.hideOverlay();
+        _notificationService.stopIncomingCall();
         _notificationService.stopOngoingCall();
         _pipService.setCallActive(false);
         // If we are on the call screen, go back
-        if (isFullCallScreenVisible.value ||
-            Get.currentRoute == '/CallScreen') {
+        if (_hasNavigator &&
+            (isFullCallScreenVisible.value ||
+                Get.currentRoute == '/CallScreen')) {
           isFullCallScreenVisible.value = false;
           Get.back();
         }
@@ -99,8 +107,15 @@ class CallController extends GetxController {
           audioEnabled: callService.isAudioEnabled.value,
           videoEnabled: callService.isVideoEnabled.value,
         );
-        _showOrUpdateNotification();
+        if (_notificationService.shouldShowSystemNotifications) {
+          _showOrUpdateNotification();
+        }
       },
+    );
+
+    _notificationVisibilityWorker = ever<bool>(
+      _notificationService.isForeground,
+      (_) => _syncCallNotificationsWithLifecycle(),
     );
   }
 
@@ -121,8 +136,59 @@ class CallController extends GetxController {
     }
   }
 
+  void openIncomingCallScreen() {
+    if (!callService.isReceivingCall.value ||
+        callService.incomingCallData == null) {
+      return;
+    }
+    if (!_hasNavigator) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        openIncomingCallScreen();
+      });
+      return;
+    }
+    if (callService.incomingCallData?['type'] == 'video') {
+      unawaited(callService.prepareIncomingVideoPreview());
+    }
+    if (isIncomingCallScreenVisible.value ||
+        Get.currentRoute == _incomingCallRouteName) {
+      return;
+    }
+    if (Get.isDialogOpen ?? false) {
+      Get.back();
+    }
+
+    isIncomingCallScreenVisible.value = true;
+    Get.to(
+      () => const IncomingCallScreen(),
+      routeName: _incomingCallRouteName,
+    )?.whenComplete(() {
+      isIncomingCallScreenVisible.value = false;
+    });
+  }
+
+  Future<void> answerIncomingCall() async {
+    if (!callService.isReceivingCall.value) return;
+    await _notificationService.stopIncomingCall();
+    _closeIncomingCallScreen();
+    await callService.acceptCall();
+  }
+
+  void declineIncomingCall() {
+    if (!callService.isReceivingCall.value) return;
+    _notificationService.stopIncomingCall();
+    _closeIncomingCallScreen();
+    callService.declineCall();
+  }
+
   void openCallScreen() {
     _overlayService.hideOverlay();
+    if (!_hasNavigator) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        openCallScreen();
+      });
+      return;
+    }
     if (isFullCallScreenVisible.value || Get.currentRoute == '/CallScreen') {
       return;
     }
@@ -135,7 +201,8 @@ class CallController extends GetxController {
   void hideFullCallScreenForOverlay() {
     if (!callService.isInCall.value && !callService.isCalling.value) return;
     isMinimizingToOverlay.value = true;
-    if (isFullCallScreenVisible.value || Get.currentRoute == '/CallScreen') {
+    if (_hasNavigator &&
+        (isFullCallScreenVisible.value || Get.currentRoute == '/CallScreen')) {
       Get.back();
     } else {
       showOverlayAfterCallScreenClosed();
@@ -151,6 +218,18 @@ class CallController extends GetxController {
         _overlayService.showOverlay();
       }
     });
+  }
+
+  void _closeIncomingCallScreen() {
+    if (!_hasNavigator) {
+      isIncomingCallScreenVisible.value = false;
+      return;
+    }
+    if (isIncomingCallScreenVisible.value ||
+        Get.currentRoute == _incomingCallRouteName) {
+      isIncomingCallScreenVisible.value = false;
+      Get.back();
+    }
   }
 
   Future<void> enterPip() async {
@@ -169,7 +248,7 @@ class CallController extends GetxController {
   void _showOrUpdateNotification() {
     if (!callService.isInCall.value) return;
     final typeLabel = callService.isVideoCall ? 'Video call' : 'Voice call';
-    final remoteName = callService.remoteUserId ?? 'Active call';
+    final remoteName = callService.callDisplayName;
     _notificationService.showOngoingCall(
       title: typeLabel,
       body: '$remoteName • ongoing',
@@ -180,64 +259,44 @@ class CallController extends GetxController {
     );
   }
 
-  void _showIncomingCallOverlay() {
-    final callerId = callService.remoteUserId;
-    final isVideo = callService.incomingCallData?['type'] == 'video';
+  void _presentIncomingCall() {
+    if (_notificationService.shouldShowSystemNotifications) {
+      _showIncomingCallNotification();
+      return;
+    }
 
-    Get.dialog(
-      AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Column(
-          children: [
-            CircleAvatar(
-              radius: 40,
-              backgroundColor: Get.theme.primaryColor.withValues(alpha: 0.2),
-              child: Icon(
-                isVideo ? Icons.videocam : Icons.phone,
-                size: 40,
-                color: Get.theme.primaryColor,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Incoming ${isVideo ? 'Video' : 'Voice'} Call',
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        content: Text(
-          'From: $callerId',
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 16),
-        ),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              FloatingActionButton(
-                heroTag: 'decline_btn',
-                onPressed: () {
-                  callService.declineCall();
-                  Get.back();
-                },
-                backgroundColor: Colors.red,
-                child: const Icon(Icons.call_end, color: Colors.white),
-              ),
-              FloatingActionButton(
-                heroTag: 'accept_btn',
-                onPressed: () {
-                  Get.back();
-                  callService.acceptCall();
-                },
-                backgroundColor: Colors.green,
-                child: const Icon(Icons.call, color: Colors.white),
-              ),
-            ],
-          ),
-        ],
-      ),
-      barrierDismissible: false,
+    unawaited(_notificationService.stopIncomingCall());
+    Future.microtask(openIncomingCallScreen);
+  }
+
+  void _showIncomingCallNotification() {
+    if (!_notificationService.shouldShowSystemNotifications) return;
+
+    final isVideo = callService.incomingCallData?['type'] == 'video';
+    _notificationService.showIncomingCall(
+      callerName: callService.callDisplayName,
+      isVideo: isVideo,
     );
+  }
+
+  void _syncCallNotificationsWithLifecycle() {
+    if (!_notificationService.shouldShowSystemNotifications) {
+      unawaited(_notificationService.stopIncomingCall());
+      unawaited(_notificationService.stopOngoingCall());
+      if (callService.isReceivingCall.value) {
+        Future.microtask(openIncomingCallScreen);
+      }
+      return;
+    }
+
+    if (callService.isReceivingCall.value &&
+        callService.incomingCallData != null) {
+      _showIncomingCallNotification();
+      return;
+    }
+
+    if (callService.isInCall.value) {
+      _showOrUpdateNotification();
+    }
   }
 }

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -7,16 +8,31 @@ import 'package:permission_handler/permission_handler.dart';
 import '../features/calls/presentation/controllers/call_controller.dart';
 import 'call_service.dart';
 
-class CallNotificationService extends GetxService {
+class CallNotificationService extends GetxService with WidgetsBindingObserver {
   static const MethodChannel _channel = MethodChannel('app.call/notification');
 
   final CallService _callService = Get.find<CallService>();
+  final RxBool isForeground = true.obs;
   bool _hasAskedNotificationPermission = false;
+
+  bool get shouldShowSystemNotifications => !isForeground.value;
 
   @override
   void onInit() {
     super.onInit();
+    WidgetsBinding.instance.addObserver(this);
     _channel.setMethodCallHandler(_handleNativeCall);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    isForeground.value = state == AppLifecycleState.resumed;
+  }
+
+  @override
+  void onClose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.onClose();
   }
 
   Future<void> showOngoingCall({
@@ -42,6 +58,27 @@ class CallNotificationService extends GetxService {
     }
   }
 
+  Future<void> showIncomingCall({
+    required String callerName,
+    required bool isVideo,
+  }) async {
+    try {
+      await _ensureNotificationPermission();
+      final typeLabel = isVideo ? 'video' : 'voice';
+      await _channel.invokeMethod<void>('showIncomingCall', {
+        'title': 'Incoming $typeLabel call',
+        'body': callerName,
+        'callerName': callerName,
+        'isVideo': isVideo,
+      });
+    } on PlatformException catch (e) {
+      Get.log(
+        'Unable to show incoming call notification: ${e.message}',
+        isError: true,
+      );
+    }
+  }
+
   Future<void> _ensureNotificationPermission() async {
     if (!Platform.isAndroid || _hasAskedNotificationPermission) return;
     _hasAskedNotificationPermission = true;
@@ -56,8 +93,37 @@ class CallNotificationService extends GetxService {
     }
   }
 
+  Future<void> stopIncomingCall() async {
+    try {
+      await _channel.invokeMethod<void>('stopIncomingCall');
+    } on PlatformException catch (e) {
+      Get.log(
+        'Unable to stop incoming call notification: ${e.message}',
+        isError: true,
+      );
+    }
+  }
+
   Future<void> _handleNativeCall(MethodCall call) async {
     switch (call.method) {
+      case 'answerIncomingCall':
+        if (_callService.isReceivingCall.value &&
+            Get.isRegistered<CallController>()) {
+          await Get.find<CallController>().answerIncomingCall();
+        }
+        break;
+      case 'declineIncomingCall':
+        if (_callService.isReceivingCall.value &&
+            Get.isRegistered<CallController>()) {
+          Get.find<CallController>().declineIncomingCall();
+        }
+        break;
+      case 'openIncomingCallScreen':
+        if (_callService.isReceivingCall.value &&
+            Get.isRegistered<CallController>()) {
+          Get.find<CallController>().openIncomingCallScreen();
+        }
+        break;
       case 'hangupCall':
         if (_callService.isInCall.value || _callService.isCalling.value) {
           _callService.endCall();
