@@ -7,6 +7,7 @@ import '../../../../core/extensions/app_extensions.dart';
 import '../../../chats/presentation/views/chats_list_screen.dart';
 import '../../../chats/presentation/views/groups_list_screen.dart';
 import '../../../calls/presentation/views/calls_list_screen.dart';
+import '../../../profile/presentation/views/profile_screen.dart';
 import '../controllers/main_controller.dart';
 
 class MainScreen extends GetView<MainController> {
@@ -22,20 +23,11 @@ class MainScreen extends GetView<MainController> {
             ChatsListScreen(),
             GroupsListScreen(),
             CallsListScreen(),
-            _buildPlaceholder('Profile', context),
+            ProfileScreen(),
           ],
         ),
       ),
       bottomNavigationBar: CustomBottomNavBar(controller: controller),
-    );
-  }
-
-  Widget _buildPlaceholder(String title, BuildContext context) {
-    return Center(
-      child: Text(
-        title,
-        style: context.textTheme.bodyLarge?.copyWith(fontSize: 24),
-      ),
     );
   }
 }

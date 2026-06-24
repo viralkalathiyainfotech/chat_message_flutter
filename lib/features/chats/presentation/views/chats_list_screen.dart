@@ -8,7 +8,6 @@ import '../../../../services/socket_service.dart';
 import '../../../../services/sync_service.dart';
 import '../../../../utils/encryption_util.dart';
 import '../../../../core/widgets/animations/staggered_list_item.dart';
-import '../../../../core/widgets/animations/pulsing_widget.dart';
 import '../controllers/chats_controller.dart';
 import 'chat_detail_screen.dart';
 import 'new_chat_screen.dart';
@@ -67,171 +66,197 @@ class ChatsListScreen extends StatelessWidget {
           );
         }
 
-        return ListView.separated(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          itemCount: controller.recentChats.length,
-          separatorBuilder: (context, index) =>
-              const Divider(height: 1, indent: 76),
-          itemBuilder: (context, index) {
-            final UserRealm chat = controller.recentChats[index];
-            return StaggeredListItem(
-              index: index,
-              child: _buildChatItem(chat, context),
-            );
-          },
+        return Column(
+          children: [
+            Row(
+              children: [
+                Text("Recent", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                SizedBox(width: 10),
+                Icon(Icons.swap_vert_rounded, size:22)
+              ],
+            ).paddingAll(20),
+            ListView.builder(
+              shrinkWrap: true,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              itemCount: controller.recentChats.length,
+              itemBuilder: (context, index) {
+                final UserRealm chat = controller.recentChats[index];
+                return StaggeredListItem(
+                  index: index,
+                  child: _buildChatItem(chat, context),
+                );
+              },
+            ),
+          ],
         );
       }),
-      floatingActionButton: PulsingWidget(
-        scaleBegin: 1.0,
-        scaleEnd: 1.05,
-        duration: const Duration(milliseconds: 2000),
-        child: FloatingActionButton(
-          onPressed: () {
-            Get.to(() => NewChatScreen());
-          },
-          backgroundColor: ColorConstants.primaryBlue,
-          child: const Icon(Icons.message, color: Colors.white),
-        ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Get.to(() => NewChatScreen());
+        },
+        backgroundColor: ColorConstants.primaryBlue,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+        child: const Icon(Icons.edit, color: Colors.white),
       ),
     );
   }
 
   Widget _buildChatItem(UserRealm chat, BuildContext context) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      leading: Stack(
-        children: [
-          CircleAvatar(
-            radius: 26,
-            backgroundImage: chat.photo != null
-                ? CachedNetworkImageProvider(chat.photo!)
-                : null,
-            child: chat.photo == null
-                ? Icon(chat.isGroup == true ? Icons.group : Icons.person)
-                : null,
-          ),
-          Obx(() {
-            final isOnline = Get.find<SocketService>().onlineUsers.contains(
-              chat.id,
-            );
-            if (isOnline) {
-              return Positioned(
-                right: 0,
-                bottom: 0,
-                child: PulsingWidget(
-                  scaleBegin: 0.8,
-                  scaleEnd: 1.2,
-                  duration: const Duration(milliseconds: 800),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+      child: ListTile(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 10,
+        ),
+        tileColor: Theme.of(context).cardColor,
+        horizontalTitleGap: 10,
+        leading: Stack(
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundImage: chat.photo != null
+                  ? CachedNetworkImageProvider(chat.photo!)
+                  : null,
+              child: chat.photo == null
+                  ? Icon(chat.isGroup == true ? Icons.group : Icons.person)
+                  : null,
+            ),
+            Obx(() {
+              final isOnline = Get.find<SocketService>().onlineUsers.contains(
+                chat.id,
+              );
+              if (isOnline) {
+                return Positioned(
+                  right: 15,
+                  bottom: 0,
                   child: Container(
-                    width: 14,
-                    height: 14,
+                    width: 12,
+                    height: 12,
                     decoration: BoxDecoration(
                       color: Colors.green,
                       shape: BoxShape.circle,
-                      border: Border.all(
-                        color: Theme.of(context).scaffoldBackgroundColor,
-                        width: 2,
+                      border: Border.all(color: ColorConstants.white, width: 1),
+                    ),
+                  ),
+                );
+              }
+              return const SizedBox.shrink();
+            }),
+          ],
+        ),
+        title: Text(
+          chat.userName ?? 'Unknown',
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+        ),
+        subtitle: Transform.translate(
+          offset: const Offset(0, 5),
+          child: Obx(() {
+            // Access updateTrigger to force refresh of lastMessage and unreadCount
+            controller.updateTrigger.value;
+            int unreadCount = RealmHelper().getUnreadCountForUser(chat.id);
+
+            MessageRealm? lastMessage = RealmHelper().getLastMessageForUser(
+              chat.id,
+            );
+            String subtitleText = 'Tap to chat...';
+
+            if (lastMessage != null) {
+              final content = lastMessage.content;
+              if (content?.type == 'text') {
+                subtitleText = EncryptionUtil.decrypt(content?.content ?? '');
+              } else if (content?.type == 'image') {
+                subtitleText = 'Photo';
+              } else if (content?.type == 'call') {
+                subtitleText = 'Call';
+              } else {
+                subtitleText = 'Attachment';
+              }
+            }
+
+            final syncService = Get.find<SyncService>();
+            final typingText = chat.isGroup == true
+                ? _formatGroupTypingText(
+                    syncService.typingUserIdsByChat[chat.id],
+                  )
+                : (syncService.typingUsers[chat.id] == true ? 'typing...' : '');
+            if (typingText.isNotEmpty) {
+              return Text(
+                typingText,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: ColorConstants.primaryBlue,
+                  fontWeight: FontWeight.w500,
+                  fontSize: 13,
+                ),
+              );
+            }
+            return Text(
+              subtitleText,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: unreadCount > 0
+                    ? ColorConstants.white
+                    : ColorConstants.white.withValues(alpha: 0.5),
+                fontSize: 13,
+              ),
+            );
+          }),
+        ),
+        trailing: Obx(() {
+          controller.updateTrigger.value;
+          int unreadCount = RealmHelper().getUnreadCountForUser(chat.id);
+
+          MessageRealm? lastMessage = RealmHelper().getLastMessageForUser(
+            chat.id,
+          );
+          String timeText = '';
+          if (lastMessage != null) {
+            timeText = _formatDate(lastMessage.createdAt);
+          }
+
+          return Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                timeText,
+                style: TextStyle(
+                  color: ColorConstants.white.withValues(alpha: 0.5),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+              const SizedBox(height: 5),
+              if (unreadCount > 0)
+                Container(
+                  height: 22.5,
+                  width: 22.5,
+                  decoration: const BoxDecoration(
+                    color: ColorConstants.primaryBlue,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: Text(
+                      unreadCount > 9 ? '9+' : unreadCount.toString(),
+                      style: const TextStyle(
+                        color: ColorConstants.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ),
                 ),
-              );
-            }
-            return const SizedBox.shrink();
-          }),
-        ],
-      ),
-      title: Text(
-        chat.userName ?? 'Unknown',
-        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-      ),
-      subtitle: Obx(() {
-        // Access updateTrigger to force refresh of lastMessage and unreadCount
-        controller.updateTrigger.value;
-
-        MessageRealm? lastMessage = RealmHelper().getLastMessageForUser(
-          chat.id,
-        );
-        String subtitleText = 'Tap to chat...';
-
-        if (lastMessage != null) {
-          final content = lastMessage.content;
-          if (content?.type == 'text') {
-            subtitleText = EncryptionUtil.decrypt(content?.content ?? '');
-          } else if (content?.type == 'image') {
-            subtitleText = '📷 Photo';
-          } else if (content?.type == 'call') {
-            subtitleText = '📞 Call';
-          } else {
-            subtitleText = '📎 Attachment';
-          }
-        }
-
-        final syncService = Get.find<SyncService>();
-        final typingText = chat.isGroup == true
-            ? _formatGroupTypingText(syncService.typingUserIdsByChat[chat.id])
-            : (syncService.typingUsers[chat.id] == true ? 'typing...' : '');
-        if (typingText.isNotEmpty) {
-          return Text(
-            typingText,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: ColorConstants.primaryBlue,
-              fontWeight: FontWeight.w500,
-            ),
+            ],
           );
-        }
-        return Text(
-          subtitleText,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: Colors.grey),
-        );
-      }),
-      trailing: Obx(() {
-        controller.updateTrigger.value;
-        int unreadCount = RealmHelper().getUnreadCountForUser(chat.id);
-
-        MessageRealm? lastMessage = RealmHelper().getLastMessageForUser(
-          chat.id,
-        );
-        String timeText = '';
-        if (lastMessage != null) {
-          timeText = _formatDate(lastMessage.createdAt);
-        }
-
-        return Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              timeText,
-              style: const TextStyle(color: Colors.grey, fontSize: 12),
-            ),
-            const SizedBox(height: 4),
-            if (unreadCount > 0)
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: const BoxDecoration(
-                  color: ColorConstants.primaryBlue,
-                  shape: BoxShape.circle,
-                ),
-                child: Text(
-                  unreadCount > 9 ? '9+' : unreadCount.toString(),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-          ],
-        );
-      }),
-      onTap: () {
-        Get.to(() => ChatDetailScreen(user: chat));
-      },
+        }),
+        onTap: () {
+          Get.to(() => ChatDetailScreen(user: chat));
+        },
+      ),
     );
   }
 

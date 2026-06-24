@@ -272,7 +272,7 @@ class CallService extends GetxService {
     if (fromEmail == null || roomId == null) return null;
 
     final mediaType = _callMediaType(data);
-    final signal = _decodePushValue(data['signal']);
+    final signal = _signalFromPushData(data);
     final participants = _decodePushValue(data['participants']);
     final groupId = _idFromPayloadValue(
       data['groupId'] ?? data['group_id'] ?? data['chat_id'],
@@ -294,13 +294,14 @@ class CallService extends GetxService {
   }
 
   String _callMediaType(Map<String, dynamic> data) {
-    final value = (data['callType'] ??
-            data['call_type'] ??
-            data['mediaType'] ??
-            data['media_type'] ??
-            data['type'])
-        ?.toString()
-        .toLowerCase();
+    final value =
+        (data['callType'] ??
+                data['call_type'] ??
+                data['mediaType'] ??
+                data['media_type'] ??
+                data['type'])
+            ?.toString()
+            .toLowerCase();
     if (value == 'audio' || value == 'voice') return 'audio';
     return 'video';
   }
@@ -309,6 +310,19 @@ class CallService extends GetxService {
     if (value is bool) return value;
     final text = value?.toString().toLowerCase();
     return text == 'true' || text == '1' || text == 'yes';
+  }
+
+  dynamic _signalFromPushData(Map<String, dynamic> data) {
+    final signal = _decodePushValue(
+      data['signal'] ?? data['offer'] ?? data['rtcSignal'],
+    );
+    if (signal != null) return signal;
+
+    final sdp = _idFromPayloadValue(
+      data['sdp'] ?? data['offerSdp'] ?? data['offer_sdp'],
+    );
+    if (sdp == null || sdp.isEmpty) return null;
+    return {'type': 'offer', 'sdp': sdp};
   }
 
   dynamic _decodePushValue(dynamic value) {
@@ -424,32 +438,82 @@ class CallService extends GetxService {
         .toSet();
   }
 
-  Future<void> acceptCall() async {
-    if (incomingCallData == null) return;
+  Future<bool> acceptCall() async {
+    if (incomingCallData == null) return false;
 
     final bool isVideo = incomingCallData!['type'] == 'video';
-    if (localStream == null || !hasLocalStream.value) {
-      await _initLocalStream(video: isVideo);
+    final offer = _incomingOfferSignal();
+    if (offer == null) {
+      Get.log('Cannot accept call without a valid offer signal', isError: true);
+      Get.snackbar(
+        'Call Failed',
+        'Unable to join this call. Please ask the caller to try again.',
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+      return false;
+    }
+
+    if (!_hasRequiredLocalMedia(video: isVideo)) {
+      final didGetMedia = await _initLocalStream(video: isVideo);
+      if (!didGetMedia) {
+        Get.snackbar(
+          'Call Failed',
+          isVideo
+              ? 'Camera is not ready yet. Please try answering again.'
+              : 'Microphone is not ready yet. Please try answering again.',
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+        );
+        return false;
+      }
     } else {
       await selectPreferredAudioOutput();
     }
-    await _socketService.ensureConnected();
+    final connected = await _socketService.ensureConnected();
+    if (!connected) {
+      Get.log('Cannot accept call before socket reconnects', isError: true);
+      Get.snackbar(
+        'Call Failed',
+        'Unable to connect to call server. Please try again.',
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+      return false;
+    }
+
+    final callerId = _idFromPayloadValue(incomingCallData!['fromEmail']);
+    if (callerId == null) {
+      Get.log('Cannot accept call without caller id', isError: true);
+      return false;
+    }
+
+    // Connect to the caller
+    final didCreatePeer = await _createPeerConnection(
+      callerId,
+      isInitiator: false,
+      offer: offer,
+    );
+    if (!didCreatePeer) {
+      Get.snackbar(
+        'Call Failed',
+        'Unable to connect this call. Please try again.',
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+      return false;
+    }
 
     isReceivingCall.value = false;
     isInCall.value = true;
     callStartTime = DateTime.now();
-
-    final callerId = incomingCallData!['fromEmail'];
-    final signal = incomingCallData!['signal'];
-
-    // Connect to the caller
-    await _createPeerConnection(callerId, isInitiator: false, offer: signal);
     _markParticipantActive(callerId);
 
     if (isGroupCall) {
       _announceParticipantJoined();
       await _connectKnownGroupParticipants(callerId);
     }
+    return true;
   }
 
   Future<void> prepareIncomingVideoPreview() async {
@@ -458,7 +522,16 @@ class CallService extends GetxService {
     await _initLocalStream(video: true);
   }
 
-  Future<void> _initLocalStream({required bool video}) async {
+  Future<bool> _initLocalStream({required bool video}) async {
+    if (_hasRequiredLocalMedia(video: video)) return true;
+
+    if (localStream != null) {
+      await _disposeMediaStream(localStream);
+      localStream = null;
+      localRenderer.value.srcObject = null;
+      hasLocalStream.value = false;
+      localRenderer.refresh();
+    }
     final mediaConstraints = {
       'audio': true,
       'video': video
@@ -480,8 +553,12 @@ class CallService extends GetxService {
       hasLocalStream.value = true;
       localRenderer.refresh();
       await selectPreferredAudioOutput();
+      isAudioEnabled.value = localStream!.getAudioTracks().isNotEmpty;
+      isVideoEnabled.value = !video || localStream!.getVideoTracks().isNotEmpty;
+      return _hasRequiredLocalMedia(video: video);
     } catch (e) {
       Get.log("Error getting user media: $e", isError: true);
+      return false;
     }
   }
 
@@ -543,6 +620,36 @@ class CallService extends GetxService {
     }
   }
 
+  Map<dynamic, dynamic>? _incomingOfferSignal() {
+    final payload = incomingCallData;
+    if (payload == null) return null;
+
+    final signal = _decodePushValue(
+      payload['signal'] ?? payload['offer'] ?? payload['rtcSignal'],
+    );
+    if (signal is Map) {
+      final type = signal['type']?.toString();
+      final sdp = signal['sdp']?.toString();
+      if (type == 'offer' && sdp != null && sdp.isNotEmpty) {
+        return signal;
+      }
+    }
+
+    final sdp = _idFromPayloadValue(
+      payload['sdp'] ?? payload['offerSdp'] ?? payload['offer_sdp'],
+    );
+    if (sdp == null || sdp.isEmpty) return null;
+    return {'type': 'offer', 'sdp': sdp};
+  }
+
+  bool _hasRequiredLocalMedia({required bool video}) {
+    final stream = localStream;
+    if (stream == null || !hasLocalStream.value) return false;
+    if (stream.getAudioTracks().isEmpty) return false;
+    if (video && stream.getVideoTracks().isEmpty) return false;
+    return true;
+  }
+
   String _preferredAudioOutputId(Iterable<CallAudioOutput> outputs) {
     for (final output in outputs) {
       if (!output.isBuiltIn) return output.id;
@@ -558,16 +665,23 @@ class CallService extends GetxService {
     return CallAudioOutput.speakerId;
   }
 
-  Future<void> _createPeerConnection(
+  Future<bool> _createPeerConnection(
     String peerId, {
     required bool isInitiator,
     dynamic offer,
     bool sendOfferAsCallSignal = false,
   }) async {
-    if (peerConnections.containsKey(peerId)) return;
+    if (peerConnections.containsKey(peerId)) return true;
     if (localStream == null) {
       Get.log('Cannot create peer connection for $peerId without local media');
-      return;
+      return false;
+    }
+    if (!isInitiator) {
+      final offerType = offer is Map ? offer['type']?.toString() : null;
+      if (offerType != 'offer') {
+        Get.log('Cannot answer $peerId without a valid offer signal');
+        return false;
+      }
     }
 
     final configuration = {
@@ -656,7 +770,10 @@ class CallService extends GetxService {
     } else if (offer != null) {
       if (offer['type'] == 'offer') {
         final didApplyOffer = await _applyRemoteDescription(peerId, offer);
-        if (!didApplyOffer) return;
+        if (!didApplyOffer) {
+          _disposePeerConnectionForRetry(peerId);
+          return false;
+        }
         final answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
 
@@ -676,8 +793,18 @@ class CallService extends GetxService {
           'to': peerId,
           'roomId': currentRoomId,
         });
+        return true;
       }
     }
+    _disposePeerConnectionForRetry(peerId);
+    return false;
+  }
+  
+  void _disposePeerConnectionForRetry(String peerId) {
+    _videoSenders.remove(peerId);
+    final pc = peerConnections.remove(peerId);
+    pc?.close();
+    pc?.dispose();
   }
 
   void _markCallConnected() {

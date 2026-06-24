@@ -169,9 +169,25 @@ class CallController extends GetxController {
 
   Future<void> answerIncomingCall() async {
     if (!callService.isReceivingCall.value) return;
+    final isVideo = callService.incomingCallData?['type'] == 'video';
+    final isDirectNotificationAnswer =
+        !isIncomingCallScreenVisible.value &&
+        Get.currentRoute != _incomingCallRouteName;
     await _notificationService.stopIncomingCall();
+    if (isVideo) {
+      if (isDirectNotificationAnswer) {
+        await _waitForForegroundBeforeVideoAnswer();
+      }
+      await callService.prepareIncomingVideoPreview();
+    }
+    final didAccept = await callService.acceptCall();
+    if (!didAccept) {
+      if (isVideo) {
+        Future.microtask(openIncomingCallScreen);
+      }
+      return;
+    }
     _closeIncomingCallScreen();
-    await callService.acceptCall();
   }
 
   void declineIncomingCall() async {
@@ -306,5 +322,15 @@ class CallController extends GetxController {
     if (callService.isInCall.value) {
       _showOrUpdateNotification();
     }
+  }
+
+  Future<void> _waitForForegroundBeforeVideoAnswer() async {
+    final deadline = DateTime.now().add(const Duration(seconds: 3));
+    while (WidgetsBinding.instance.lifecycleState !=
+            AppLifecycleState.resumed &&
+        DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 250));
   }
 }
