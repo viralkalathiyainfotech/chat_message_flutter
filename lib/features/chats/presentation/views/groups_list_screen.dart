@@ -8,6 +8,7 @@ import '../../../../services/sync_service.dart';
 import '../../../../utils/encryption_util.dart';
 import '../controllers/groups_controller.dart';
 import 'chat_detail_screen.dart';
+import 'create_group_screen.dart';
 
 class GroupsListScreen extends GetView<GroupsController> {
   GroupsListScreen({super.key}) {
@@ -53,7 +54,7 @@ class GroupsListScreen extends GetView<GroupsController> {
       }),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          // Future: Create new group
+          Get.to(() => CreateGroupScreen());
         },
         backgroundColor: ColorConstants.primaryBlue,
         child: const Icon(Icons.group_add, color: Colors.white),
@@ -88,7 +89,7 @@ class GroupsListScreen extends GetView<GroupsController> {
             typingText,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+            style: TextStyle(
               color: ColorConstants.primaryBlue,
               fontWeight: FontWeight.w500,
             ),
@@ -123,7 +124,7 @@ class GroupsListScreen extends GetView<GroupsController> {
             if (unreadCount > 0)
               Container(
                 padding: const EdgeInsets.all(6),
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   color: ColorConstants.primaryBlue,
                   shape: BoxShape.circle,
                 ),

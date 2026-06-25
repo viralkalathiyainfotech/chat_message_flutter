@@ -17,14 +17,14 @@ extension ContextExtension on BuildContext {
   ThemeData get theme => Theme.of(this);
   TextTheme get textTheme => theme.textTheme;
   ColorScheme get colorScheme => theme.colorScheme;
-  
+
   // Navigation shortcut
   void back() => Navigator.of(this).pop();
-  
+
   // Padding shortcuts
   EdgeInsets get viewPadding => MediaQuery.paddingOf(this);
   double get keyboardHeight => MediaQuery.viewInsetsOf(this).bottom;
-  
+
   // Theme check
   bool get isDarkMode => theme.brightness == Brightness.dark;
 }

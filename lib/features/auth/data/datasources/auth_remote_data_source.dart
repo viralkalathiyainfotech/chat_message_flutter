@@ -10,7 +10,11 @@ abstract class AuthRemoteDataSource {
   Future<void> sendOtp(String mobileNumber);
   Future<Map<String, dynamic>> verifyOtp(String mobileNumber, String otp);
   Future<UserModel> getCurrentUserProfile();
-  Future<UserModel> updateProfileInfo({required String userName, required String bio, XFile? photo});
+  Future<UserModel> updateProfileInfo({
+    required String userName,
+    required String bio,
+    XFile? photo,
+  });
 }
 
 class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
@@ -19,10 +23,11 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
   @override
   Future<void> sendOtp(String mobileNumber) async {
-    final response = await apiService.dio.post(NetworkConstants.mobileOtp, data: {
-      'mobileNumber': mobileNumber,
-    });
-    
+    final response = await apiService.dio.post(
+      NetworkConstants.mobileOtp,
+      data: {'mobileNumber': mobileNumber},
+    );
+
     if (response.statusCode != 200) {
       throw DioException(
         requestOptions: response.requestOptions,
@@ -33,13 +38,15 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
   }
 
   @override
-  Future<Map<String, dynamic>> verifyOtp(String mobileNumber, String otp) async {
-    final response = await apiService.dio.post(NetworkConstants.verifyOtp, data: {
-      'mobileNumber': mobileNumber,
-      'otp': otp,
-      'isMobile': true,
-    });
-    
+  Future<Map<String, dynamic>> verifyOtp(
+    String mobileNumber,
+    String otp,
+  ) async {
+    final response = await apiService.dio.post(
+      NetworkConstants.verifyOtp,
+      data: {'mobileNumber': mobileNumber, 'otp': otp, 'isMobile': true},
+    );
+
     if (response.statusCode == 200) {
       return {
         'user': UserModel.fromJson(response.data['user']),
@@ -65,7 +72,9 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
       );
     }
 
-    final response = await apiService.dio.get(NetworkConstants.singleUser(userId));
+    final response = await apiService.dio.get(
+      NetworkConstants.singleUser(userId),
+    );
 
     if (response.statusCode == 200) {
       final data =
@@ -84,23 +93,37 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
   }
 
   @override
-  Future<UserModel> updateProfileInfo({required String userName, required String bio, XFile? photo}) async {
-    FormData formData = FormData.fromMap({
-      'userName': userName,
-      'bio': bio,
-    });
+  Future<UserModel> updateProfileInfo({
+    required String userName,
+    required String bio,
+    XFile? photo,
+  }) async {
+    FormData formData = FormData.fromMap({'userName': userName, 'bio': bio});
 
     if (photo != null) {
-      formData.files.add(MapEntry(
-        'photo',
-        await MultipartFile.fromFile(photo.path, filename: photo.name),
-      ));
+      formData.files.add(
+        MapEntry(
+          'photo',
+          await MultipartFile.fromFile(photo.path, filename: photo.name),
+        ),
+      );
     }
 
-    final response = await apiService.dio.post(NetworkConstants.profileInfo, data: formData);
-    
+    final userId = storageService.getUserId();
+    final response = (userId != null && userId.isNotEmpty)
+        ? await apiService.dio.put(
+            NetworkConstants.editUser(userId),
+            data: formData,
+          )
+        : await apiService.dio.post(
+            NetworkConstants.profileInfo,
+            data: formData,
+          );
+
     if (response.statusCode == 200) {
-      return UserModel.fromJson(response.data['user'] ?? response.data);
+      return UserModel.fromJson(
+        response.data['user'] ?? response.data['users'] ?? response.data,
+      );
     } else {
       throw DioException(
         requestOptions: response.requestOptions,

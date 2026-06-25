@@ -23,7 +23,7 @@ class SplashController extends GetxController {
       } catch (e) {
         Get.log('Error triggering background contact sync: $e', isError: true);
       }
-      
+
       Get.offAllNamed(AppRoutes.home);
     } else {
       if (Get.isRegistered<SessionPrivacyService>()) {

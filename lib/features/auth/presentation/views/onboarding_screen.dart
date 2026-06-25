@@ -19,7 +19,7 @@ class OnboardingScreen extends StatelessWidget {
           // Full screen background image
           Positioned.fill(
             child: Image.asset(
-              AssetConstants.onboardingBackground, 
+              AssetConstants.onboardingBackground,
               fit: BoxFit.cover,
               errorBuilder: (context, error, stackTrace) => const SizedBox(),
             ),
@@ -27,7 +27,10 @@ class OnboardingScreen extends StatelessWidget {
           // Foreground content
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24.0,
+                vertical: 20,
+              ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
@@ -35,7 +38,11 @@ class OnboardingScreen extends StatelessWidget {
                   const Text(
                     StringConstants.onboardingTitle,
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: ColorConstants.white),
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: ColorConstants.white,
+                    ),
                   ),
                   16.height,
                   Row(
@@ -50,7 +57,10 @@ class OnboardingScreen extends StatelessWidget {
                       8.width,
                       Text(
                         StringConstants.secureMessaging,
-                        style: const TextStyle(color: ColorConstants.textSecondary, fontSize: 16),
+                        style: const TextStyle(
+                          color: ColorConstants.textSecondary,
+                          fontSize: 16,
+                        ),
                       ),
                     ],
                   ),
@@ -101,12 +111,18 @@ class _SwipeToStartButtonState extends State<SwipeToStartButton> {
             children: [
               const Center(
                 child: Text(
-                  StringConstants.startMessaging, 
-                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)
+                  StringConstants.startMessaging,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               AnimatedPositioned(
-                duration: _dragPosition == 0 ? const Duration(milliseconds: 300) : Duration.zero,
+                duration: _dragPosition == 0
+                    ? const Duration(milliseconds: 300)
+                    : Duration.zero,
                 left: _dragPosition,
                 child: GestureDetector(
                   onHorizontalDragUpdate: (details) {
@@ -114,7 +130,9 @@ class _SwipeToStartButtonState extends State<SwipeToStartButton> {
                     setState(() {
                       _dragPosition += details.delta.dx;
                       if (_dragPosition < 0) _dragPosition = 0;
-                      if (_dragPosition > maxDragPosition) _dragPosition = maxDragPosition;
+                      if (_dragPosition > maxDragPosition) {
+                        _dragPosition = maxDragPosition;
+                      }
                     });
                   },
                   onHorizontalDragEnd: (details) {
@@ -136,8 +154,14 @@ class _SwipeToStartButtonState extends State<SwipeToStartButton> {
                     child: Container(
                       width: 44,
                       height: 44,
-                      decoration: const BoxDecoration(color: ColorConstants.primaryBlue, shape: BoxShape.circle),
-                      child: const Icon(Icons.arrow_forward, color: Colors.white),
+                      decoration: BoxDecoration(
+                        color: ColorConstants.primaryBlue,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.arrow_forward,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                 ),

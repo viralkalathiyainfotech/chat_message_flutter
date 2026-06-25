@@ -3,7 +3,8 @@ class AssetConstants {
   static const String iconPath = 'assets/icons';
 
   // Images
-  static const String onboardingBackground = '$imagePath/onboarding_background.png';
+  static const String onboardingBackground =
+      '$imagePath/onboarding_background.png';
 
   // Icons can be added here
   static const String callsIcon = '$iconPath/calls.svg';

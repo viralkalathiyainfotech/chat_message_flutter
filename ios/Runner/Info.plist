@@ -7,7 +7,9 @@
 	<key>NSContactsUsageDescription</key>
 	<string>This app requires contacts access to connect you with friends already on ChatApp.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>This app requires camera access for video calls.</string>
+	<string>This app requires camera access for video calls and QR code scanning.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This app requires photo library access to choose photos.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>This app requires microphone access for voice and video calls.</string>
 	<key>CFBundleDevelopmentRegion</key>

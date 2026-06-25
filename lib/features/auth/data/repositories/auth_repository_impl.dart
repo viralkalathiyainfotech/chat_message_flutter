@@ -28,22 +28,25 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
-  Future<Either<Failure, User>> verifyOtp(String mobileNumber, String otp) async {
+  Future<Either<Failure, User>> verifyOtp(
+    String mobileNumber,
+    String otp,
+  ) async {
     try {
       final result = await remoteDataSource.verifyOtp(mobileNumber, otp);
       final user = result['user'] as User;
       if (Get.isRegistered<SessionPrivacyService>()) {
         await Get.find<SessionPrivacyService>().resetForAccountSwitch(user.id);
       }
-      
+
       // Save tokens
       await storageService.saveTokens(
         token: result['token'],
         refreshToken: result['refreshToken'],
       );
-      
+
       await storageService.saveString('user_id', user.id);
-      
+
       return Right(user);
     } on DioException catch (e) {
       return Left(ServerFailure(e.message ?? 'Failed to verify OTP'));

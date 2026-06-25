@@ -1,4 +1,5 @@
 class NetworkConstants {
+  // static const String apiRoot = 'http://10.0.2.2:5000/';
   static const String apiRoot = 'http://localhost:5000/';
   // static const String apiRoot = 'https://reel-dates-dana-inns.trycloudflare.com';
   // static const String apiRoot = 'http://192.168.29.189:5000';

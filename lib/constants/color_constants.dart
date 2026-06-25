@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import '../core/theme/theme_controller.dart';
 
 class ColorConstants {
-  static const Color primaryBlue = Color(
-    0xFF6366F1,
-  ); // The purple/blue from designs
+  static Color get primaryBlue {
+    if (Get.isRegistered<ThemeController>()) {
+      return Get.find<ThemeController>().themeColor;
+    }
+    return const Color(0xFF6366F1);
+  }
   static const Color backgroundDarkMode = Color(
     0xFF141414,
   ); // Actually dark background

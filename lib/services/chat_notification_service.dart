@@ -370,13 +370,14 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
   }
 
   String _callMediaType(Map<String, dynamic> data) {
-    final value = (data['callType'] ??
-            data['call_type'] ??
-            data['mediaType'] ??
-            data['media_type'] ??
-            data['type'])
-        ?.toString()
-        .toLowerCase();
+    final value =
+        (data['callType'] ??
+                data['call_type'] ??
+                data['mediaType'] ??
+                data['media_type'] ??
+                data['type'])
+            ?.toString()
+            .toLowerCase();
     if (value == 'audio' || value == 'voice') return 'audio';
     return 'video';
   }
@@ -396,7 +397,7 @@ class ChatNotificationService extends GetxService with WidgetsBindingObserver {
     _isForeground = state == AppLifecycleState.resumed;
   }
 
-  @override 
+  @override
   void onClose() {
     _chatHistoryCache.clear();
     WidgetsBinding.instance.removeObserver(this);

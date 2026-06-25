@@ -25,17 +25,26 @@ class LoginScreen extends GetView<AuthController> {
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Center(child: Icon(Icons.person, color: Colors.black, size: 30)),
+                child: const Center(
+                  child: Icon(Icons.person, color: Colors.black, size: 30),
+                ),
               ),
               24.height,
               const Text(
                 StringConstants.welcomeBack,
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: ColorConstants.white),
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: ColorConstants.white,
+                ),
               ),
               8.height,
               const Text(
                 StringConstants.enterPhoneNumber,
-                style: TextStyle(fontSize: 14, color: ColorConstants.textSecondary),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: ColorConstants.textSecondary,
+                ),
               ),
               40.height,
               const Text(
@@ -54,8 +63,19 @@ class LoginScreen extends GetView<AuthController> {
                   children: [
                     const Text('🇮🇳', style: TextStyle(fontSize: 24)),
                     12.width,
-                    const Expanded(child: Text('India', style: TextStyle(color: ColorConstants.white, fontSize: 16))),
-                    const Icon(Icons.keyboard_arrow_down, color: ColorConstants.textSecondary),
+                    const Expanded(
+                      child: Text(
+                        'India',
+                        style: TextStyle(
+                          color: ColorConstants.white,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                    const Icon(
+                      Icons.keyboard_arrow_down,
+                      color: ColorConstants.textSecondary,
+                    ),
                   ],
                 ),
               ),
@@ -71,14 +91,29 @@ class LoginScreen extends GetView<AuthController> {
                 style: const TextStyle(color: ColorConstants.white),
                 decoration: InputDecoration(
                   hintText: StringConstants.phoneNumberHint,
-                  hintStyle: const TextStyle(color: ColorConstants.textSecondary),
+                  hintStyle: const TextStyle(
+                    color: ColorConstants.textSecondary,
+                  ),
                   filled: true,
                   fillColor: ColorConstants.inputBackground,
                   prefixIcon: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
-                    child: Text('+91', style: TextStyle(color: ColorConstants.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 16.0,
+                      vertical: 14.0,
+                    ),
+                    child: Text(
+                      '+91',
+                      style: TextStyle(
+                        color: ColorConstants.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
-                  prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+                  prefixIconConstraints: const BoxConstraints(
+                    minWidth: 0,
+                    minHeight: 0,
+                  ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
                     borderSide: BorderSide.none,
@@ -86,25 +121,42 @@ class LoginScreen extends GetView<AuthController> {
                 ),
               ),
               40.height,
-              Obx(() => SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: controller.isLoading.value ? null : () => controller.sendOtp(),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: ColorConstants.primaryBlue,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+              Obx(
+                () => SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton(
+                    onPressed: controller.isLoading.value
+                        ? null
+                        : () => controller.sendOtp(),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: ColorConstants.primaryBlue,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      child: controller.isLoading.value
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                color: ColorConstants.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Text(
+                              StringConstants.continueBtn,
+                              style: TextStyle(
+                                color: ColorConstants.white,
+                                fontSize: 16,
+                              ),
+                            ),
                     ),
                   ),
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
-                    child: controller.isLoading.value 
-                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: ColorConstants.white, strokeWidth: 2))
-                      : const Text(StringConstants.continueBtn, style: TextStyle(color: ColorConstants.white, fontSize: 16)),
-                  ),
                 ),
-              )),
+              ),
             ],
           ),
         ),

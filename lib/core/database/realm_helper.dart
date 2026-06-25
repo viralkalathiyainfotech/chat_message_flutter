@@ -79,16 +79,20 @@ class RealmHelper {
           oldMsg.createdAt,
           oldMsg.updatedAt,
           false,
-          content: oldMsg.content != null ? MessageContentRealm(
-            oldMsg.content!.type,
-            content: oldMsg.content!.content,
-            fileUrl: oldMsg.content!.fileUrl,
-            fileType: oldMsg.content!.fileType,
-            size: oldMsg.content!.size,
-            timestamp: oldMsg.content!.timestamp,
-            status: oldMsg.content!.status,
-          ) : null,
-          reactions: oldMsg.reactions.map((r) => MessageReactionRealm(r.emoji, r.userIdsJson)).toList(),
+          content: oldMsg.content != null
+              ? MessageContentRealm(
+                  oldMsg.content!.type,
+                  content: oldMsg.content!.content,
+                  fileUrl: oldMsg.content!.fileUrl,
+                  fileType: oldMsg.content!.fileType,
+                  size: oldMsg.content!.size,
+                  timestamp: oldMsg.content!.timestamp,
+                  status: oldMsg.content!.status,
+                )
+              : null,
+          reactions: oldMsg.reactions
+              .map((r) => MessageReactionRealm(r.emoji, r.userIdsJson))
+              .toList(),
           serverId: newId,
           chatId: oldMsg.chatId,
           deliveryStatus: status,
@@ -115,6 +119,24 @@ class RealmHelper {
     });
   }
 
+  void clearMessagesForChat(String userId) {
+    final messages = getMessagesForUser(userId);
+    _realm.write(() {
+      _realm.deleteMany(messages);
+    });
+  }
+
+  void deleteChatLocally(String userId) {
+    final messages = getMessagesForUser(userId);
+    _realm.write(() {
+      _realm.deleteMany(messages);
+      final user = _realm.find<UserRealm>(userId);
+      if (user != null) {
+        _realm.delete(user);
+      }
+    });
+  }
+
   void updateMessageContent(String messageId, String newContent) {
     _realm.write(() {
       final msg = _realm.find<MessageRealm>(messageId);
@@ -125,7 +147,10 @@ class RealmHelper {
     });
   }
 
-  void updateMessageReactions(String messageId, List<MessageReactionRealm> reactions) {
+  void updateMessageReactions(
+    String messageId,
+    List<MessageReactionRealm> reactions,
+  ) {
     _realm.write(() {
       final msg = _realm.find<MessageRealm>(messageId);
       if (msg != null) {
@@ -135,7 +160,12 @@ class RealmHelper {
     });
   }
 
-  void handleMessageReactionLocally(String messageId, String userId, String emoji, String action) {
+  void handleMessageReactionLocally(
+    String messageId,
+    String userId,
+    String emoji,
+    String action,
+  ) {
     _realm.write(() {
       final msg = _realm.find<MessageRealm>(messageId);
       if (msg != null) {
@@ -151,17 +181,23 @@ class RealmHelper {
         if (action == 'added') {
           if (existingIndex != -1) {
             // Check if user is already in JSON
-            List<dynamic> users = jsonDecode(msg.reactions[existingIndex].userIdsJson);
+            List<dynamic> users = jsonDecode(
+              msg.reactions[existingIndex].userIdsJson,
+            );
             if (!users.contains(userId)) {
               users.add(userId);
               msg.reactions[existingIndex].userIdsJson = jsonEncode(users);
             }
           } else {
-            msg.reactions.add(MessageReactionRealm(emoji, jsonEncode([userId])));
+            msg.reactions.add(
+              MessageReactionRealm(emoji, jsonEncode([userId])),
+            );
           }
         } else if (action == 'removed') {
           if (existingIndex != -1) {
-            List<dynamic> users = jsonDecode(msg.reactions[existingIndex].userIdsJson);
+            List<dynamic> users = jsonDecode(
+              msg.reactions[existingIndex].userIdsJson,
+            );
             users.remove(userId);
             if (users.isEmpty) {
               msg.reactions.removeAt(existingIndex);
@@ -177,10 +213,16 @@ class RealmHelper {
   List<MessageRealm> getMessagesForUser(String userId) {
     final user = _realm.find<UserRealm>(userId);
     if (user != null && user.isGroup == true) {
-      return _realm.query<MessageRealm>('receiverId == \$0 SORT(createdAt ASC)', [userId]).toList();
+      return _realm.query<MessageRealm>(
+        'receiverId == \$0 SORT(createdAt ASC)',
+        [userId],
+      ).toList();
     } else {
       final myId = Get.find<StorageService>().getUserId();
-      return _realm.query<MessageRealm>('(senderId == \$0 AND receiverId == \$1) OR (senderId == \$1 AND receiverId == \$0) SORT(createdAt ASC)', [userId, myId]).toList();
+      return _realm.query<MessageRealm>(
+        '(senderId == \$0 AND receiverId == \$1) OR (senderId == \$1 AND receiverId == \$0) SORT(createdAt ASC)',
+        [userId, myId],
+      ).toList();
     }
   }
 
@@ -188,10 +230,16 @@ class RealmHelper {
     final user = _realm.find<UserRealm>(userId);
     RealmResults<MessageRealm> messages;
     if (user != null && user.isGroup == true) {
-      messages = _realm.query<MessageRealm>('receiverId == \$0 SORT(createdAt DESC)', [userId]);
+      messages = _realm.query<MessageRealm>(
+        'receiverId == \$0 SORT(createdAt DESC)',
+        [userId],
+      );
     } else {
       final myId = Get.find<StorageService>().getUserId();
-      messages = _realm.query<MessageRealm>('(senderId == \$0 AND receiverId == \$1) OR (senderId == \$1 AND receiverId == \$0) SORT(createdAt DESC)', [userId, myId]);
+      messages = _realm.query<MessageRealm>(
+        '(senderId == \$0 AND receiverId == \$1) OR (senderId == \$1 AND receiverId == \$0) SORT(createdAt DESC)',
+        [userId, myId],
+      );
     }
     return messages.isNotEmpty ? messages.first : null;
   }
@@ -199,13 +247,19 @@ class RealmHelper {
   int getUnreadCountForUser(String userId) {
     final user = _realm.find<UserRealm>(userId);
     final myId = Get.find<StorageService>().getUserId();
-    
+
     if (user != null && user.isGroup == true) {
       // For groups, unread messages are ones sent to the group by others where status != 'read'
-      return _realm.query<MessageRealm>("receiverId == \$0 AND senderId != \$1 AND status != 'read'", [userId, myId]).length;
+      return _realm.query<MessageRealm>(
+        "receiverId == \$0 AND senderId != \$1 AND status != 'read'",
+        [userId, myId],
+      ).length;
     } else {
       // For 1-on-1, unread messages are ones sent by the other user where status != 'read'
-      return _realm.query<MessageRealm>("senderId == \$0 AND receiverId == \$1 AND status != 'read'", [userId, myId]).length;
+      return _realm.query<MessageRealm>(
+        "senderId == \$0 AND receiverId == \$1 AND status != 'read'",
+        [userId, myId],
+      ).length;
     }
   }
 

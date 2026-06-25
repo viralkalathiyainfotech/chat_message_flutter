@@ -12,9 +12,9 @@ class MessageSyncService extends GetxService {
     ChatRepository? chatRepository,
     ReceiptService? receiptService,
     StorageService? storageService,
-  })  : _chatRepository = chatRepository ?? Get.find<ChatRepository>(),
-        _receiptService = receiptService ?? Get.find<ReceiptService>(),
-        _storageService = storageService ?? Get.find<StorageService>();
+  }) : _chatRepository = chatRepository ?? Get.find<ChatRepository>(),
+       _receiptService = receiptService ?? Get.find<ReceiptService>(),
+       _storageService = storageService ?? Get.find<StorageService>();
 
   final ChatRepository _chatRepository;
   final ReceiptService _receiptService;
@@ -33,16 +33,14 @@ class MessageSyncService extends GetxService {
     try {
       await _receiptService.flushPendingDelivered();
 
-      var afterEventId = int.tryParse(_storageService.getString(_lastEventKey) ?? '0') ?? 0;
+      var afterEventId =
+          int.tryParse(_storageService.getString(_lastEventKey) ?? '0') ?? 0;
       var hasMore = true;
 
       while (hasMore) {
         final response = await Get.find<ApiService>().dio.get(
           NetworkConstants.messagesSync,
-          queryParameters: {
-            'afterEventId': afterEventId,
-            'limit': 100,
-          },
+          queryParameters: {'afterEventId': afterEventId, 'limit': 100},
         );
 
         final events = response.data['events'];
@@ -54,13 +52,17 @@ class MessageSyncService extends GetxService {
         final deliveredIds = <String>[];
         for (final rawEvent in events) {
           if (rawEvent is! Map) continue;
-          final event = rawEvent.map((key, value) => MapEntry(key.toString(), value));
+          final event = rawEvent.map(
+            (key, value) => MapEntry(key.toString(), value),
+          );
           final message = event['message'];
           if (event['type'] != 'message_created' || message is! Map) {
             continue;
           }
 
-          final normalized = message.map((key, value) => MapEntry(key.toString(), value));
+          final normalized = message.map(
+            (key, value) => MapEntry(key.toString(), value),
+          );
           await _chatRepository.saveIncomingMessage(normalized);
           final messageId = normalized['_id']?.toString();
           if (messageId != null) deliveredIds.add(messageId);
@@ -72,7 +74,10 @@ class MessageSyncService extends GetxService {
           final eventId = int.tryParse(event['eventId']?.toString() ?? '');
           if (eventId != null && eventId > afterEventId) {
             afterEventId = eventId;
-            await _storageService.saveString(_lastEventKey, afterEventId.toString());
+            await _storageService.saveString(
+              _lastEventKey,
+              afterEventId.toString(),
+            );
           }
         }
 
@@ -93,7 +98,9 @@ class MessageSyncService extends GetxService {
     if (!Get.isRegistered<ChatNotificationService>()) return;
     final messageId = message['_id']?.toString();
     final senderId = _id(message['sender'] ?? message['senderId']);
-    final chatId = _id(message['group'] ?? message['groupId'] ?? message['receiver']) ?? senderId;
+    final chatId =
+        _id(message['group'] ?? message['groupId'] ?? message['receiver']) ??
+        senderId;
     if (messageId == null || chatId == null) return;
 
     final content = message['content'];

@@ -31,8 +31,14 @@ class _ProfileInfoScreenState extends State<ProfileInfoScreen> {
     return Scaffold(
       backgroundColor: ColorConstants.backgroundDarkMode,
       appBar: AppBar(
-        title: const Text(StringConstants.yourProfile, style: TextStyle(color: ColorConstants.white, fontSize: 18)),
-        leading: IconButton(icon: const Icon(Icons.arrow_back_ios, size: 20), onPressed: context.back),
+        title: const Text(
+          StringConstants.yourProfile,
+          style: TextStyle(color: ColorConstants.white, fontSize: 18),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios, size: 20),
+          onPressed: context.back,
+        ),
         elevation: 0,
         backgroundColor: Colors.transparent,
         iconTheme: const IconThemeData(color: ColorConstants.white),
@@ -45,64 +51,96 @@ class _ProfileInfoScreenState extends State<ProfileInfoScreen> {
             children: [
               const Text(
                 'Review your profile details before continuing. Existing details are loaded from your account.',
-                style: TextStyle(fontSize: 14, color: ColorConstants.textSecondary, height: 1.5),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: ColorConstants.textSecondary,
+                  height: 1.5,
+                ),
               ),
-              Obx(() => controller.isProfileLoading.value
-                  ? const Padding(
-                      padding: EdgeInsets.only(top: 16),
-                      child: LinearProgressIndicator(
-                        minHeight: 2,
-                        color: ColorConstants.primaryBlue,
-                        backgroundColor: ColorConstants.inputBackground,
-                      ),
-                    )
-                  : const SizedBox.shrink()),
+              Obx(
+                () => controller.isProfileLoading.value
+                    ? Padding(
+                        padding: EdgeInsets.only(top: 16),
+                        child: LinearProgressIndicator(
+                          minHeight: 2,
+                          color: ColorConstants.primaryBlue,
+                          backgroundColor: ColorConstants.inputBackground,
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
               40.height,
               Center(
-                child: Obx(() => GestureDetector(
-                  onTap: controller.pickImage,
-                  child: Stack(
-                    children: [
-                      CircleAvatar(
-                        radius: 60,
-                        backgroundColor: const Color(0xFFD9D9D9),
-                        backgroundImage: controller.selectedImage.value != null
-                            ? FileImage(File(controller.selectedImage.value!.path))
-                            : controller.existingPhotoUrl.value.isNotEmpty
-                                ? CachedNetworkImageProvider(controller.existingPhotoUrl.value) as ImageProvider
-                                : null,
-                        child: (controller.selectedImage.value == null && controller.existingPhotoUrl.value.isEmpty)
-                            ? const Icon(Icons.image, size: 50, color: ColorConstants.textSecondary)
-                            : null,
-                      ),
-                      Positioned(
-                        bottom: 0,
-                        right: 0,
-                        child: Container(
-                          padding: 8.all,
-                          decoration: const BoxDecoration(
-                            color: ColorConstants.inputBackground,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.camera_alt, color: ColorConstants.textSecondary, size: 20),
+                child: Obx(
+                  () => GestureDetector(
+                    onTap: controller.pickImage,
+                    child: Stack(
+                      children: [
+                        CircleAvatar(
+                          radius: 60,
+                          backgroundColor: const Color(0xFFD9D9D9),
+                          backgroundImage:
+                              controller.selectedImage.value != null
+                              ? FileImage(
+                                  File(controller.selectedImage.value!.path),
+                                )
+                              : controller.existingPhotoUrl.value.isNotEmpty
+                              ? CachedNetworkImageProvider(
+                                      controller.existingPhotoUrl.value,
+                                    )
+                                    as ImageProvider
+                              : null,
+                          child:
+                              (controller.selectedImage.value == null &&
+                                  controller.existingPhotoUrl.value.isEmpty)
+                              ? const Icon(
+                                  Icons.image,
+                                  size: 50,
+                                  color: ColorConstants.textSecondary,
+                                )
+                              : null,
                         ),
-                      ),
-                    ],
+                        Positioned(
+                          bottom: 0,
+                          right: 0,
+                          child: Container(
+                            padding: 8.all,
+                            decoration: const BoxDecoration(
+                              color: ColorConstants.inputBackground,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.camera_alt,
+                              color: ColorConstants.textSecondary,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                )),
+                ),
               ),
               40.height,
-              const Text(StringConstants.fullNameLabel, style: TextStyle(color: ColorConstants.white, fontSize: 16)),
+              const Text(
+                StringConstants.fullNameLabel,
+                style: TextStyle(color: ColorConstants.white, fontSize: 16),
+              ),
               8.height,
               TextField(
                 controller: controller.userNameController,
                 style: const TextStyle(color: ColorConstants.white),
                 decoration: InputDecoration(
                   hintText: StringConstants.userNameHint,
-                  hintStyle: const TextStyle(color: ColorConstants.textSecondary),
+                  hintStyle: const TextStyle(
+                    color: ColorConstants.textSecondary,
+                  ),
                   filled: true,
                   fillColor: ColorConstants.inputBackground,
-                  suffixIcon: const Icon(Icons.sentiment_satisfied, color: ColorConstants.textSecondary),
+                  suffixIcon: const Icon(
+                    Icons.sentiment_satisfied,
+                    color: ColorConstants.textSecondary,
+                  ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
                     borderSide: BorderSide.none,
@@ -110,7 +148,10 @@ class _ProfileInfoScreenState extends State<ProfileInfoScreen> {
                 ),
               ),
               30.height,
-              const Text(StringConstants.aboutLabel, style: TextStyle(color: ColorConstants.white, fontSize: 16)),
+              const Text(
+                StringConstants.aboutLabel,
+                style: TextStyle(color: ColorConstants.white, fontSize: 16),
+              ),
               8.height,
               TextField(
                 controller: controller.bioController,
@@ -118,7 +159,9 @@ class _ProfileInfoScreenState extends State<ProfileInfoScreen> {
                 style: const TextStyle(color: ColorConstants.white),
                 decoration: InputDecoration(
                   hintText: StringConstants.bioHint,
-                  hintStyle: const TextStyle(color: ColorConstants.textSecondary),
+                  hintStyle: const TextStyle(
+                    color: ColorConstants.textSecondary,
+                  ),
                   filled: true,
                   fillColor: ColorConstants.inputBackground,
                   suffixIcon: const Column(
@@ -126,7 +169,10 @@ class _ProfileInfoScreenState extends State<ProfileInfoScreen> {
                     children: [
                       Padding(
                         padding: EdgeInsets.only(top: 12.0, right: 12.0),
-                        child: Icon(Icons.sentiment_satisfied, color: ColorConstants.textSecondary),
+                        child: Icon(
+                          Icons.sentiment_satisfied,
+                          color: ColorConstants.textSecondary,
+                        ),
                       ),
                     ],
                   ),
@@ -137,30 +183,53 @@ class _ProfileInfoScreenState extends State<ProfileInfoScreen> {
                 ),
               ),
               50.height,
-              Obx(() => SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: controller.isLoading.value ? null : () => controller.updateProfile(),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: ColorConstants.primaryBlue,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+              Obx(
+                () => SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton(
+                    onPressed: controller.isLoading.value
+                        ? null
+                        : () => controller.updateProfile(),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: ColorConstants.primaryBlue,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      child: controller.isLoading.value
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                color: ColorConstants.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Text(
+                              StringConstants.save,
+                              style: TextStyle(
+                                color: ColorConstants.white,
+                                fontSize: 16,
+                              ),
+                            ),
                     ),
                   ),
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
-                    child: controller.isLoading.value 
-                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: ColorConstants.white, strokeWidth: 2))
-                      : const Text(StringConstants.save, style: TextStyle(color: ColorConstants.white, fontSize: 16)),
-                  ),
                 ),
-              )),
+              ),
               16.height,
               Center(
                 child: TextButton(
                   onPressed: () => Get.offAllNamed(AppRoutes.home),
-                  child: const Text(StringConstants.skip, style: TextStyle(color: ColorConstants.textSecondary, fontSize: 16)),
+                  child: const Text(
+                    StringConstants.skip,
+                    style: TextStyle(
+                      color: ColorConstants.textSecondary,
+                      fontSize: 16,
+                    ),
+                  ),
                 ),
               ),
             ],

@@ -38,7 +38,7 @@ class BackgroundMessageProcessor {
     required bool showNotification,
   }) async {
     await ensureBackgroundServices();
-    
+
     final data = message.data;
     if (_isIncomingCallPush(data)) {
       if (showNotification) {
@@ -53,7 +53,9 @@ class BackgroundMessageProcessor {
     final payload = await _messagePayload(data);
     if (payload == null) return;
 
-    final messageId = _id(payload['_id'] ?? payload['messageId'] ?? data['message_id']);
+    final messageId = _id(
+      payload['_id'] ?? payload['messageId'] ?? data['message_id'],
+    );
     if (messageId == null) return;
 
     await Get.find<ChatRepository>().saveIncomingMessage(payload);
@@ -65,12 +67,13 @@ class BackgroundMessageProcessor {
   }
 
   static bool _isIncomingCallPush(Map<String, dynamic> data) {
-    final event = (data['event'] ??
-            data['call_event'] ??
-            data['notification_type'] ??
-            data['type'])
-        ?.toString()
-        .toLowerCase();
+    final event =
+        (data['event'] ??
+                data['call_event'] ??
+                data['notification_type'] ??
+                data['type'])
+            ?.toString()
+            .toLowerCase();
     if (event == 'call-requested' ||
         event == 'call-invited' ||
         event == 'incoming_call' ||
@@ -81,17 +84,18 @@ class BackgroundMessageProcessor {
 
     final hasCallShape =
         (data['roomId'] != null || data['room_id'] != null) &&
-            (data['fromEmail'] != null ||
-                data['from_email'] != null ||
-                data['caller_id'] != null ||
-                data['sender_id'] != null);
-    final mediaType = (data['callType'] ??
-            data['call_type'] ??
-            data['mediaType'] ??
-            data['media_type'] ??
-            data['type'])
-        ?.toString()
-        .toLowerCase();
+        (data['fromEmail'] != null ||
+            data['from_email'] != null ||
+            data['caller_id'] != null ||
+            data['sender_id'] != null);
+    final mediaType =
+        (data['callType'] ??
+                data['call_type'] ??
+                data['mediaType'] ??
+                data['media_type'] ??
+                data['type'])
+            ?.toString()
+            .toLowerCase();
     return hasCallShape && (mediaType == 'video' || mediaType == 'audio');
   }
 
@@ -113,17 +117,20 @@ class BackgroundMessageProcessor {
       final decoded = jsonDecode(payload) as Map<String, dynamic>;
       chatId = _actionChatId(decoded);
       messageId = decoded['messageId']?.toString();
-      await _recordActionTrace(actionId, 'received', extra: {
-        'chatId': chatId,
-        'messageId': messageId,
-        'hasInput': input?.trim().isNotEmpty == true,
-      });
+      await _recordActionTrace(
+        actionId,
+        'received',
+        extra: {
+          'chatId': chatId,
+          'messageId': messageId,
+          'hasInput': input?.trim().isNotEmpty == true,
+        },
+      );
 
       if (chatId == null || chatId.isEmpty || messageId == null) {
         await _recordActionTrace(actionId, 'invalid_payload');
         return;
       }
-
 
       if (actionId == ChatNotificationService.replyActionId) {
         final replyText = input?.trim();
@@ -133,10 +140,11 @@ class BackgroundMessageProcessor {
         }
 
         await _sendNotificationReply(chatId, replyText);
-        await _recordActionTrace(actionId, 'reply_sent', extra: {
-          'chatId': chatId,
-          'messageId': messageId,
-        });
+        await _recordActionTrace(
+          actionId,
+          'reply_sent',
+          extra: {'chatId': chatId, 'messageId': messageId},
+        );
         return;
       }
 
@@ -146,18 +154,23 @@ class BackgroundMessageProcessor {
           messageIds: [messageId],
         );
         RealmHelper().updateMessageStatus(messageId, 'read');
-        await _recordActionTrace(actionId, 'marked_read', extra: {
-          'chatId': chatId,
-          'messageId': messageId,
-        });
+        await _recordActionTrace(
+          actionId,
+          'marked_read',
+          extra: {'chatId': chatId, 'messageId': messageId},
+        );
       }
       await _cancelActionNotification(messageId);
     } catch (e) {
-      await _recordActionTrace(actionId, 'failed', extra: {
-        'chatId': chatId,
-        'messageId': messageId,
-        'error': e.toString(),
-      });
+      await _recordActionTrace(
+        actionId,
+        'failed',
+        extra: {
+          'chatId': chatId,
+          'messageId': messageId,
+          'error': e.toString(),
+        },
+      );
       Get.log('Failed to handle notification action: $e', isError: true);
     } finally {
       await _cancelActionNotification(messageId);
@@ -336,7 +349,8 @@ class BackgroundMessageProcessor {
     Map<String, dynamic> payload,
     Map<String, dynamic> data,
   ) {
-    final isGroup = data['is_group'] == 'true' ||
+    final isGroup =
+        data['is_group'] == 'true' ||
         data['is_group'] == true ||
         payload['groupId'] != null ||
         payload['group'] != null;

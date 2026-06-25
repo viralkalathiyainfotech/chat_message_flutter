@@ -25,7 +25,9 @@ class SyncService extends GetxService {
   ReceiptService? get _receiptService =>
       Get.isRegistered<ReceiptService>() ? Get.find<ReceiptService>() : null;
   MessageSyncService? get _messageSyncService =>
-      Get.isRegistered<MessageSyncService>() ? Get.find<MessageSyncService>() : null;
+      Get.isRegistered<MessageSyncService>()
+      ? Get.find<MessageSyncService>()
+      : null;
   ChatNotificationService? get _notificationService =>
       Get.isRegistered<ChatNotificationService>()
       ? Get.find<ChatNotificationService>()
@@ -282,7 +284,9 @@ class SyncService extends GetxService {
     }
 
     final content = data['content'];
-    final rawPreview = content is Map ? content['content']?.toString() ?? '' : '';
+    final rawPreview = content is Map
+        ? content['content']?.toString() ?? ''
+        : '';
     final preview = EncryptionUtil.decrypt(rawPreview);
     final sender = data['sender'] ?? data['senderId'];
     final senderName = sender is Map
@@ -293,7 +297,8 @@ class SyncService extends GetxService {
       messageId: messageId,
       senderName: senderName,
       preview: preview,
-      isGroup: _realmHelper.realm.find<UserRealm>(chatId)?.isGroup == true ||
+      isGroup:
+          _realmHelper.realm.find<UserRealm>(chatId)?.isGroup == true ||
           data['groupId'] != null ||
           data['group'] != null,
       senderId: _idFromPayload(data['senderId'] ?? data['sender']),

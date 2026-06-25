@@ -799,7 +799,7 @@ class CallService extends GetxService {
     _disposePeerConnectionForRetry(peerId);
     return false;
   }
-  
+
   void _disposePeerConnectionForRetry(String peerId) {
     _videoSenders.remove(peerId);
     final pc = peerConnections.remove(peerId);

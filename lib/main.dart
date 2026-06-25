@@ -63,12 +63,13 @@ void main() async {
   Get.put(PushNotificationService());
   await Get.find<PushNotificationService>().initialize();
 
-  final wasLaunchedFromCallNotification = await Get.find<ChatNotificationService>()
-      .hasInitialCallNotificationLaunch();
+  final wasLaunchedFromCallNotification =
+      await Get.find<ChatNotificationService>()
+          .hasInitialCallNotificationLaunch();
   final initialRoute =
       wasLaunchedFromCallNotification && Get.find<StorageService>().isLoggedIn
-          ? AppRoutes.home
-          : AppRoutes.splash;
+      ? AppRoutes.home
+      : AppRoutes.splash;
 
   runApp(MyApp(initialRoute: initialRoute));
   WidgetsBinding.instance.addPostFrameCallback((_) {

@@ -9,8 +9,13 @@ import '../../../../services/sync_service.dart';
 import '../../../../utils/encryption_util.dart';
 import '../../../../core/widgets/animations/staggered_list_item.dart';
 import '../controllers/chats_controller.dart';
+import 'chat_camera_screen.dart';
 import 'chat_detail_screen.dart';
+import 'create_group_screen.dart';
+import 'linked_devices_screen.dart';
 import 'new_chat_screen.dart';
+
+enum _ChatListMenuAction { newChat, newGroup, linkedDevices }
 
 class ChatsListScreen extends StatelessWidget {
   ChatsListScreen({super.key});
@@ -48,7 +53,38 @@ class ChatsListScreen extends StatelessWidget {
                 : const SizedBox.shrink(),
           ),
           IconButton(icon: const Icon(Icons.search), onPressed: () {}),
-          IconButton(icon: const Icon(Icons.more_vert), onPressed: () {}),
+          IconButton(
+            icon: const Icon(Icons.camera_alt_outlined),
+            onPressed: () => Get.to(() => const ChatCameraScreen()),
+          ),
+          PopupMenuButton<_ChatListMenuAction>(
+            icon: const Icon(Icons.more_vert),
+            color: Theme.of(context).cardColor,
+            onSelected: _handleMenuAction,
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: _ChatListMenuAction.newChat,
+                child: _ChatListMenuItem(
+                  icon: Icons.chat_bubble_outline,
+                  label: 'New chat',
+                ),
+              ),
+              PopupMenuItem(
+                value: _ChatListMenuAction.newGroup,
+                child: _ChatListMenuItem(
+                  icon: Icons.group_add_outlined,
+                  label: 'New group',
+                ),
+              ),
+              PopupMenuItem(
+                value: _ChatListMenuAction.linkedDevices,
+                child: _ChatListMenuItem(
+                  icon: Icons.devices_outlined,
+                  label: 'Linked devices',
+                ),
+              ),
+            ],
+          ),
         ],
       ),
       body: Obx(() {
@@ -56,37 +92,49 @@ class ChatsListScreen extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (controller.recentChats.isEmpty) {
-          return const Center(
-            child: Text(
-              'No chats yet.\\nStart a conversation!',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey),
-            ),
-          );
-        }
-
         return Column(
           children: [
-            Row(
-              children: [
-                Text("Recent", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                SizedBox(width: 10),
-                Icon(Icons.swap_vert_rounded, size:22)
-              ],
-            ).paddingAll(20),
-            ListView.builder(
-              shrinkWrap: true,
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: controller.recentChats.length,
-              itemBuilder: (context, index) {
-                final UserRealm chat = controller.recentChats[index];
-                return StaggeredListItem(
-                  index: index,
-                  child: _buildChatItem(chat, context),
-                );
-              },
+            GestureDetector(
+              onTap: controller.toggleArchiveView,
+              behavior: HitTestBehavior.opaque,
+              child: Row(
+                children: [
+                  Text(
+                    controller.chatListTitle,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Icon(Icons.swap_vert_rounded, size: 22),
+                ],
+              ).paddingAll(20),
             ),
+            if (controller.recentChats.isEmpty)
+              Expanded(
+                child: Center(
+                  child: Text(
+                    controller.emptyMessage,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                ),
+              )
+            else
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  itemCount: controller.recentChats.length,
+                  itemBuilder: (context, index) {
+                    final UserRealm chat = controller.recentChats[index];
+                    return StaggeredListItem(
+                      index: index,
+                      child: _buildChatItem(chat, context),
+                    );
+                  },
+                ),
+              ),
           ],
         );
       }),
@@ -186,7 +234,7 @@ class ChatsListScreen extends StatelessWidget {
                 typingText,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                   color: ColorConstants.primaryBlue,
                   fontWeight: FontWeight.w500,
                   fontSize: 13,
@@ -235,7 +283,7 @@ class ChatsListScreen extends StatelessWidget {
                 Container(
                   height: 22.5,
                   width: 22.5,
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                     color: ColorConstants.primaryBlue,
                     shape: BoxShape.circle,
                   ),
@@ -258,6 +306,20 @@ class ChatsListScreen extends StatelessWidget {
         },
       ),
     );
+  }
+
+  void _handleMenuAction(_ChatListMenuAction action) {
+    switch (action) {
+      case _ChatListMenuAction.newChat:
+        Get.to(() => NewChatScreen());
+        break;
+      case _ChatListMenuAction.newGroup:
+        Get.to(() => CreateGroupScreen());
+        break;
+      case _ChatListMenuAction.linkedDevices:
+        Get.to(() => LinkedDevicesScreen());
+        break;
+    }
   }
 
   String _formatDate(DateTime date) {
@@ -284,5 +346,25 @@ class ChatsListScreen extends StatelessWidget {
       return '${user?.userName ?? 'Someone'} is typing...';
     }
     return '${typingIds.length} are typing...';
+  }
+}
+
+class _ChatListMenuItem extends StatelessWidget {
+  const _ChatListMenuItem({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).textTheme.bodyMedium?.color;
+
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: color),
+        const SizedBox(width: 12),
+        Text(label),
+      ],
+    );
   }
 }

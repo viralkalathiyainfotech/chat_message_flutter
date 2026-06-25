@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../constants/color_constants.dart';
-import '../../../../services/storage_service.dart';
 import '../controllers/calls_controller.dart';
-import '../../../chats/presentation/views/chat_detail_screen.dart';
+import '../controllers/call_controller.dart';
 
 class CallsListScreen extends GetView<CallsController> {
   CallsListScreen({super.key}) {
@@ -21,32 +20,74 @@ class CallsListScreen extends GetView<CallsController> {
         title: Text(
           'Calls',
           style: TextStyle(
-            color: isDark ? Colors.white : Colors.black, 
+            color: isDark ? Colors.white : Colors.black,
+            fontSize: 28,
             fontWeight: FontWeight.bold,
           ),
         ),
-        backgroundColor: Theme.of(context).appBarTheme.backgroundColor ?? Theme.of(context).scaffoldBackgroundColor,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
+        centerTitle: false,
       ),
       body: Obx(() {
         if (controller.calls.isEmpty) {
           return const Center(child: Text('No call history.'));
         }
 
-        return ListView.separated(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          itemCount: controller.calls.length,
-          separatorBuilder: (context, index) => const Divider(height: 1, indent: 76),
+        // Group calls by dateGroup
+        final Map<String, List<CallRecord>> groupedCalls = {};
+        for (var record in controller.calls) {
+          groupedCalls.putIfAbsent(record.dateGroup, () => []).add(record);
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          itemCount: groupedCalls.length,
           itemBuilder: (context, index) {
-            final callRecord = controller.calls[index];
-            return _buildCallItem(callRecord, context);
+            final dateGroup = groupedCalls.keys.elementAt(index);
+            final groupRecords = groupedCalls[dateGroup]!;
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(left: 4, top: 16, bottom: 8),
+                  child: Text(
+                    dateGroup,
+                    style: const TextStyle(
+                      color: Colors.grey,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).cardColor,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(
+                    children: List.generate(groupRecords.length, (itemIndex) {
+                      final record = groupRecords[itemIndex];
+                      final isLast = itemIndex == groupRecords.length - 1;
+
+                      return Column(
+                        children: [
+                          _buildCallItem(record, context),
+                          if (!isLast)
+                            const Divider(height: 1, indent: 68, color: Colors.white10),
+                        ],
+                      );
+                    }),
+                  ),
+                ),
+              ],
+            );
           },
         );
       }),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          // Future: Start new call
-        },
+        onPressed: () {},
         backgroundColor: ColorConstants.primaryBlue,
         child: const Icon(Icons.add_call, color: Colors.white),
       ),
@@ -55,67 +96,56 @@ class CallsListScreen extends GetView<CallsController> {
 
   Widget _buildCallItem(CallRecord record, BuildContext context) {
     final user = record.user;
-    final message = record.message;
-    final content = message.content;
-    
-    final myUserId = Get.find<StorageService>().getUserId() ?? '';
-    final isOutgoing = message.senderId == myUserId;
-    final isVideo = content?.callType == 'video';
-    
-    // Parse timestamp safely
-    String timeString = '';
-    if (content?.timestamp != null) {
-       final dt = DateTime.tryParse(content!.timestamp!);
-       if (dt != null) {
-          timeString = "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
-       } else {
-          timeString = message.createdAt.toString().substring(11, 16);
-       }
+
+    IconData statusIcon = Icons.call_made;
+    Color statusColor = Colors.redAccent;
+
+    if (record.callType == 'missed') {
+      statusIcon = Icons.phone_missed;
+      statusColor = Colors.redAccent;
+    } else if (record.callType == 'incoming') {
+      statusIcon = Icons.call_received;
+      statusColor = Colors.greenAccent;
     } else {
-       timeString = message.createdAt.toString().substring(11, 16);
+      statusIcon = Icons.call_made;
+      statusColor = Colors.redAccent;
     }
 
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       leading: CircleAvatar(
-        radius: 26,
-        backgroundColor: Colors.grey.shade200,
-        backgroundImage: user.photo != null && user.photo!.isNotEmpty
-            ? CachedNetworkImageProvider(user.photo!)
-            : null,
-        child: user.photo == null || user.photo!.isEmpty
-            ? Icon(user.isGroup == true ? Icons.group : Icons.person, color: Colors.grey, size: 30)
-            : null,
+        radius: 24,
+        backgroundColor: Colors.grey.shade800,
+        backgroundImage: CachedNetworkImageProvider(record.avatarUrl),
       ),
       title: Text(
-        user.userName ?? 'User',
-        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        record.title,
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
       ),
-      subtitle: Row(
-        children: [
-          Icon(
-            isOutgoing ? Icons.call_made : Icons.call_received,
-            size: 16,
-            color: isOutgoing ? Colors.green : Colors.red,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            timeString,
-            style: const TextStyle(color: Colors.grey),
-          ),
-        ],
-      ),
-      trailing: IconButton(
-        icon: Icon(
-          isVideo ? Icons.videocam : Icons.call,
-          color: ColorConstants.primaryBlue,
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Row(
+          children: [
+            Icon(statusIcon, size: 16, color: statusColor),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                record.subtitle,
+                style: const TextStyle(color: Colors.grey, fontSize: 13),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
         ),
-        onPressed: () {
-          // Future: Make call directly from here
-        },
+      ),
+      trailing: Text(
+        record.timeString,
+        style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.w500),
       ),
       onTap: () {
-        Get.to(() => ChatDetailScreen(user: user));
+        // Call the API properly as requested by the user
+        final callController = Get.find<CallController>();
+        callController.startCall(user.id, video: false, isGroup: user.isGroup == true);
       },
     );
   }

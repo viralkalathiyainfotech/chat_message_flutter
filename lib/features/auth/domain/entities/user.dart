@@ -5,7 +5,7 @@ class User {
   final String? userName;
   final String? bio;
   final String? profilePhoto;
-  
+
   User({
     required this.id,
     required this.mobileNumber,

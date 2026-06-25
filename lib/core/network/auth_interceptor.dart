@@ -23,9 +23,13 @@ class AuthInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) async {
     // Only attempt refresh on 401, and only if we have a refresh token
-    if (err.response?.statusCode == 401 && _storageService.refreshToken != null && !_isRefreshing) {
+    if (err.response?.statusCode == 401 &&
+        _storageService.refreshToken != null &&
+        !_isRefreshing) {
       // Prevent infinite loops on the refresh token endpoint itself
-      if (err.requestOptions.path.contains(NetworkConstants.generateNewTokens)) {
+      if (err.requestOptions.path.contains(
+        NetworkConstants.generateNewTokens,
+      )) {
         await _clearPrivateSession();
         getx.Get.offAllNamed('/login');
         return super.onError(err, handler);
@@ -42,7 +46,8 @@ class AuthInterceptor extends Interceptor {
 
           // Retry the original failed request with the new access token
           final retryOptions = err.requestOptions;
-          retryOptions.headers['Authorization'] = 'Bearer ${newTokens['token']}';
+          retryOptions.headers['Authorization'] =
+              'Bearer ${newTokens['token']}';
 
           final response = await _dio.fetch(retryOptions);
           _isRefreshing = false;
@@ -76,7 +81,9 @@ class AuthInterceptor extends Interceptor {
       // Backend reads refresh token from the Authorization header
       refreshDio.options.headers['Authorization'] = 'Bearer $refreshToken';
 
-      final response = await refreshDio.post(NetworkConstants.generateNewTokens);
+      final response = await refreshDio.post(
+        NetworkConstants.generateNewTokens,
+      );
 
       if (response.statusCode == 200 &&
           response.data['accessToken'] != null &&

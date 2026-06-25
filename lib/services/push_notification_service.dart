@@ -17,8 +17,8 @@ class PushNotificationService extends GetxService {
   PushNotificationService({
     ApiService? apiService,
     StorageService? storageService,
-  })  : _apiService = apiService ?? Get.find<ApiService>(),
-        _storageService = storageService ?? Get.find<StorageService>();
+  }) : _apiService = apiService ?? Get.find<ApiService>(),
+       _storageService = storageService ?? Get.find<StorageService>();
 
   final ApiService _apiService;
   final StorageService _storageService;
@@ -98,8 +98,8 @@ class PushNotificationService extends GetxService {
           'platform': Platform.isAndroid
               ? 'android'
               : Platform.isIOS
-                  ? 'ios'
-                  : 'unknown',
+              ? 'ios'
+              : 'unknown',
           'fcmToken': token,
           'appVersion': '1.0.0+1',
         },

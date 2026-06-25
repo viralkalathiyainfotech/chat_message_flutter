@@ -105,7 +105,9 @@ class CustomBottomNavBar extends StatelessWidget {
               width: 24,
             ),
             4.height,
-            Text(label,style: TextStyle(
+            Text(
+              label,
+              style: TextStyle(
                 color: isSelected
                     ? ColorConstants.primaryBlue
                     : theme.bottomNavigationBarTheme.unselectedItemColor ??
@@ -113,7 +115,8 @@ class CustomBottomNavBar extends StatelessWidget {
                 fontWeight: FontWeight.w500,
                 fontSize: 12,
                 fontFamily: 'Inter',
-              ),),
+              ),
+            ),
           ],
         ),
       ),

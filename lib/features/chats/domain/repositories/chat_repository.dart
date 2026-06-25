@@ -15,6 +15,8 @@ import '../../../../../utils/encryption_util.dart';
 import 'package:uuid/uuid.dart';
 
 class ChatRepository {
+  static const String archivedChatIdsKey = 'archived_chat_ids';
+
   final ApiService _apiService = Get.find<ApiService>();
   final RealmHelper _realmHelper = RealmHelper();
   final ConnectivityService _connectivity = Get.find<ConnectivityService>();
@@ -23,6 +25,78 @@ class ChatRepository {
 
   String _formatFileSize(int sizeBytes) {
     return '${(sizeBytes / (1024 * 1024)).toStringAsFixed(2)} MB';
+  }
+
+  Future<void> _saveArchivedChatIds(List usersData) async {
+    final storageService = Get.find<StorageService>();
+    final currentUserId = storageService.getUserId();
+    if (currentUserId == null || currentUserId.isEmpty) return;
+
+    for (final data in usersData) {
+      if (data is! Map) continue;
+      if (data['_id']?.toString() != currentUserId) continue;
+
+      final archiveUsers = data['archiveUsers'];
+      if (archiveUsers is! List) return;
+
+      final archivedIds = archiveUsers
+          .map((id) => id?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+      await storageService.saveString(
+        archivedChatIdsKey,
+        jsonEncode(archivedIds),
+      );
+      return;
+    }
+  }
+
+  Set<String> _readArchivedChatIds() {
+    final raw = Get.find<StorageService>().getString(archivedChatIdsKey);
+    if (raw == null || raw.isEmpty) return <String>{};
+
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded
+            .map((id) => id?.toString() ?? '')
+            .where((id) => id.isNotEmpty)
+            .toSet();
+      }
+    } catch (error) {
+      Get.log('Failed to parse archived chat ids: $error', isError: true);
+    }
+
+    return <String>{};
+  }
+
+  Future<void> _toggleArchivedChatId(String chatId) async {
+    final archivedIds = _readArchivedChatIds();
+    if (!archivedIds.add(chatId)) {
+      archivedIds.remove(chatId);
+    }
+
+    await Get.find<StorageService>().saveString(
+      archivedChatIdsKey,
+      jsonEncode(archivedIds.toList()),
+    );
+  }
+
+  Future<void> _postSelectedUserAction(
+    String endpoint,
+    String selectedUserId,
+  ) async {
+    if (!_connectivity.isOnline.value) {
+      throw Exception('This action requires an internet connection.');
+    }
+
+    final response = await _apiService.dio.post(
+      endpoint,
+      data: {'selectedUserId': selectedUserId},
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Action failed.');
+    }
   }
 
   Future<List<UserRealm>> getChatList({bool fetchFromNetwork = true}) async {
@@ -37,6 +111,7 @@ class ChatRepository {
         );
         if (response.statusCode == 200) {
           final usersData = response.data['users'] as List;
+          await _saveArchivedChatIds(usersData);
           final List<MessageRealm> allMessagesToSave = [];
 
           final fetchedUsers = usersData.map((data) {
@@ -367,8 +442,7 @@ class ChatRepository {
         eventId: data['eventId']?.toString(),
         messageType: contentData['type']?.toString() ?? 'text',
         preview: contentData['content']?.toString(),
-        serverTimestamp:
-            DateTime.tryParse(data['createdAt']?.toString() ?? ''),
+        serverTimestamp: DateTime.tryParse(data['createdAt']?.toString() ?? ''),
         isFromNotification: data['isFromNotification'] == true,
         isSynced: data['isSynced'] != false,
       );
@@ -492,6 +566,273 @@ class ChatRepository {
     };
   }
 
+  Future<UserRealm> createGroup({
+    required String userName,
+    required List<String> memberIds,
+    String? bio,
+    String? photoPath,
+  }) async {
+    if (!_connectivity.isOnline.value) {
+      throw Exception('Group creation requires an internet connection.');
+    }
+
+    final currentUserId = Get.find<StorageService>().getUserId();
+    if (currentUserId == null || currentUserId.isEmpty) {
+      throw Exception('You must be logged in to create a group.');
+    }
+
+    final members = <String>{...memberIds, currentUserId}.toList();
+    final formData = dio.FormData.fromMap({
+      'userName': userName,
+      'createdBy': currentUserId,
+      'bio': bio ?? '',
+      'members': jsonEncode(members),
+      if (photoPath != null && photoPath.isNotEmpty)
+        'photo': await dio.MultipartFile.fromFile(photoPath),
+    });
+
+    final response = await _apiService.dio.post(
+      NetworkConstants.createGroup,
+      data: formData,
+    );
+
+    if (response.statusCode != 200 || response.data == null) {
+      throw Exception('Failed to create group.');
+    }
+
+    final groupData = response.data['group'];
+    if (groupData is! Map) {
+      throw Exception('Invalid group response.');
+    }
+
+    final group = UserRealm(
+      groupData['_id']?.toString() ??
+          response.data['groupId']?.toString() ??
+          '',
+      userName: groupData['userName']?.toString() ?? userName,
+      photo: groupData['photo']?.toString(),
+      bio: groupData['bio']?.toString() ?? bio,
+      isGroup: true,
+      membersListJson: jsonEncode(groupData['members'] ?? members),
+    );
+
+    _realmHelper.saveUsers([group]);
+    _socketService.emitCreateGroup(Map<String, dynamic>.from(groupData));
+    return group;
+  }
+
+  Future<UserRealm> updateGroupInfo({
+    required String groupId,
+    required String userName,
+    String? bio,
+    String? photoPath,
+  }) async {
+    if (!_connectivity.isOnline.value) {
+      throw Exception('Group update requires an internet connection.');
+    }
+
+    final formData = dio.FormData.fromMap({
+      'groupId': groupId,
+      'userName': userName,
+      'bio': ?bio,
+      if (photoPath != null && photoPath.isNotEmpty)
+        'photo': await dio.MultipartFile.fromFile(photoPath),
+    });
+
+    final response = await _apiService.dio.put(
+      NetworkConstants.updateGroup(groupId),
+      data: formData,
+    );
+
+    if (response.statusCode != 200 || response.data == null) {
+      throw Exception('Failed to update group.');
+    }
+
+    final groupData = response.data['group'];
+    if (groupData is! Map) {
+      throw Exception('Invalid group response.');
+    }
+
+    return _saveGroupFromMap(groupData, fallbackGroupId: groupId);
+  }
+
+  Future<void> toggleMuteChat(String selectedUserId) {
+    return _postSelectedUserAction(NetworkConstants.muteChat, selectedUserId);
+  }
+
+  Future<void> togglePinChat(String selectedUserId) {
+    return _postSelectedUserAction(NetworkConstants.pinChat, selectedUserId);
+  }
+
+  Future<void> toggleArchiveChat(String selectedUserId) async {
+    await _postSelectedUserAction(NetworkConstants.archiveUser, selectedUserId);
+    await _toggleArchivedChatId(selectedUserId);
+  }
+
+  Future<void> blockUser(String selectedUserId) {
+    return _postSelectedUserAction(NetworkConstants.blockUser, selectedUserId);
+  }
+
+  Future<void> clearChatThread(String selectedId) async {
+    if (!_connectivity.isOnline.value) {
+      throw Exception('This action requires an internet connection.');
+    }
+
+    final response = await _apiService.dio.post(
+      NetworkConstants.clearChat,
+      data: {'selectedId': selectedId},
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to clear chat.');
+    }
+
+    _realmHelper.clearMessagesForChat(selectedId);
+  }
+
+  Future<void> deleteChatThread(String selectedUserId) async {
+    await clearChatThread(selectedUserId);
+    await _postSelectedUserAction(NetworkConstants.deleteChat, selectedUserId);
+    _realmHelper.deleteChatLocally(selectedUserId);
+  }
+
+  Future<void> leaveGroup(String groupId) async {
+    if (!_connectivity.isOnline.value) {
+      throw Exception('This action requires an internet connection.');
+    }
+
+    final currentUserId = Get.find<StorageService>().getUserId();
+    if (currentUserId == null || currentUserId.isEmpty) {
+      throw Exception('You must be logged in to leave a group.');
+    }
+
+    final response = await _apiService.dio.post(
+      NetworkConstants.leaveGroup,
+      data: {'groupId': groupId, 'userId': currentUserId},
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to leave group.');
+    }
+
+    _realmHelper.deleteChatLocally(groupId);
+  }
+
+  Future<void> deleteGroup(String groupId) async {
+    if (!_connectivity.isOnline.value) {
+      throw Exception('This action requires an internet connection.');
+    }
+
+    final response = await _apiService.dio.delete(
+      NetworkConstants.deleteGroup(groupId),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to delete group.');
+    }
+
+    _realmHelper.deleteChatLocally(groupId);
+  }
+
+  Future<void> addParticipants({
+    required String groupId,
+    required List<String> memberIds,
+  }) async {
+    if (!_connectivity.isOnline.value) {
+      throw Exception('This action requires an internet connection.');
+    }
+
+    final currentUserId = Get.find<StorageService>().getUserId();
+    if (currentUserId == null || currentUserId.isEmpty) {
+      throw Exception('You must be logged in to add members.');
+    }
+
+    final response = await _apiService.dio.post(
+      NetworkConstants.addParticipants,
+      data: {
+        'groupId': groupId,
+        'members': memberIds,
+        'addedBy': currentUserId,
+      },
+    );
+    if (response.statusCode != 200 || response.data == null) {
+      throw Exception('Failed to add members.');
+    }
+
+    final groupData = response.data['group'];
+    if (groupData is Map) {
+      _saveGroupFromMap(groupData, fallbackGroupId: groupId);
+    }
+  }
+
+  Future<void> removeGroupMember({
+    required String groupId,
+    required String memberId,
+  }) async {
+    if (!_connectivity.isOnline.value) {
+      throw Exception('This action requires an internet connection.');
+    }
+
+    final currentUserId = Get.find<StorageService>().getUserId();
+    if (currentUserId == null || currentUserId.isEmpty) {
+      throw Exception('You must be logged in to remove group members.');
+    }
+
+    final response = await _apiService.dio.post(
+      NetworkConstants.leaveGroup,
+      data: {'groupId': groupId, 'userId': memberId, 'removeId': currentUserId},
+    );
+    if (response.statusCode != 200 || response.data == null) {
+      throw Exception('Failed to remove member.');
+    }
+
+    final groupData = response.data['group'];
+    if (groupData is Map) {
+      _saveGroupFromMap(groupData, fallbackGroupId: groupId);
+    } else {
+      _removeMemberLocally(groupId: groupId, memberId: memberId);
+    }
+  }
+
+  UserRealm _saveGroupFromMap(
+    Map groupData, {
+    required String fallbackGroupId,
+  }) {
+    final group = UserRealm(
+      groupData['_id']?.toString() ?? fallbackGroupId,
+      userName: groupData['userName']?.toString() ?? 'Group',
+      photo: groupData['photo']?.toString(),
+      bio: groupData['bio']?.toString(),
+      isGroup: true,
+      membersListJson: jsonEncode(groupData['members'] ?? const []),
+    );
+    _realmHelper.saveUsers([group]);
+    return group;
+  }
+
+  void _removeMemberLocally({
+    required String groupId,
+    required String memberId,
+  }) {
+    final group = _realmHelper.realm.find<UserRealm>(groupId);
+    if (group == null || group.membersListJson == null) return;
+
+    try {
+      final decoded = jsonDecode(group.membersListJson!);
+      if (decoded is! List) return;
+      final updatedMembers = decoded.where((member) {
+        if (member is Map) {
+          final id = (member['_id'] ?? member['id'])?.toString();
+          return id != memberId;
+        }
+        return member?.toString() != memberId;
+      }).toList();
+
+      _realmHelper.realm.write(() {
+        group.membersListJson = jsonEncode(updatedMembers);
+      });
+    } catch (error) {
+      Get.log('Failed to update local group members: $error', isError: true);
+    }
+  }
+
   Future<void> sendMessage(
     String receiverId,
     String content,
@@ -499,6 +840,7 @@ class ChatRepository {
     String? fileUrl,
     String? fileType,
     String? size,
+    Map<String, dynamic>? replyTo,
   }) async {
     final tempId = _uuid.v4();
     final now = DateTime.now();
@@ -542,6 +884,7 @@ class ChatRepository {
         fileUrl: fileUrl,
         fileType: fileType,
         size: size,
+        replyTo: replyTo,
       );
     } else {
       // Add to offline queue
@@ -564,6 +907,7 @@ class ChatRepository {
     String? fileUrl,
     String? fileType,
     String? size,
+    Map<String, dynamic>? replyTo,
   }) async {
     // Logic to send message through socket
     Get.log('Sending message to $receiverId');
@@ -582,7 +926,7 @@ class ChatRepository {
       _socketService.emitGroupMessage({
         'senderId': userId,
         'groupId': receiverId,
-        'content': contentData,
+        'content': {...contentData, 'replyTo': ?replyTo},
       });
       return;
     }
@@ -591,10 +935,82 @@ class ChatRepository {
       'senderId': userId,
       'receiverId': receiverId,
       'content': contentData,
-      'replyTo': null,
+      'replyTo': replyTo,
       'isBlocked': false,
       'tempMessageId': tempId,
     });
+  }
+
+  Future<void> forwardMessage({
+    required MessageRealm message,
+    required UserRealm recipient,
+  }) async {
+    if (!_connectivity.isOnline.value) {
+      throw Exception('Forwarding requires an internet connection.');
+    }
+
+    final currentUserId = Get.find<StorageService>().getUserId();
+    if (currentUserId == null || currentUserId.isEmpty) {
+      throw Exception('You must be logged in to forward messages.');
+    }
+
+    final content = message.content;
+    if (content == null) {
+      throw Exception('This message cannot be forwarded.');
+    }
+
+    final contentData = _contentPayload(content);
+    _socketService.emitForwardMessage({
+      'senderId': currentUserId,
+      'content': contentData,
+      'forwardedFrom': message.senderId,
+      'isGroup': recipient.isGroup == true,
+      if (recipient.isGroup == true) 'groupId': recipient.id,
+      if (recipient.isGroup != true) 'receiverId': recipient.id,
+    });
+
+    final now = DateTime.now();
+    _realmHelper.saveMessage(
+      MessageRealm(
+        _uuid.v4(),
+        currentUserId,
+        recipient.id,
+        'sent',
+        false,
+        now,
+        now,
+        false,
+        content: MessageContentRealm(
+          content.type,
+          content: content.content,
+          fileUrl: content.fileUrl,
+          fileType: content.fileType,
+          size: content.size,
+          timestamp: content.timestamp,
+          status: content.status,
+          callType: content.callType,
+          duration: content.duration,
+          callfrom: content.callfrom,
+          joined: content.joined,
+        ),
+      ),
+    );
+  }
+
+  Map<String, dynamic> _contentPayload(MessageContentRealm content) {
+    return {
+      'type': content.type,
+      'content': content.content,
+      if (content.fileUrl != null) 'fileUrl': content.fileUrl,
+      if (content.fileType != null) 'fileType': content.fileType,
+      if (content.size != null) 'size': content.size,
+      if (content.timestamp != null) 'timestamp': content.timestamp,
+      if (content.status != null) 'status': content.status,
+      if (content.callType != null) 'callType': content.callType,
+      if (content.duration != null) 'duration': content.duration,
+      if (content.callfrom != null) 'callfrom': content.callfrom,
+      if (content.joined != null) 'joined': content.joined,
+    };
   }
 
   void updateMessageStatusLocally(String messageId, String status) {

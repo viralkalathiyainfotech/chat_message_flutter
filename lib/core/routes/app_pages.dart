@@ -9,6 +9,7 @@ import '../../features/auth/presentation/views/profile_info_screen.dart';
 import '../../features/main/presentation/bindings/main_binding.dart';
 import '../../features/main/presentation/views/main_screen.dart';
 import 'app_routes.dart';
+
 class AppPages {
   static final pages = [
     GetPage(
@@ -16,10 +17,7 @@ class AppPages {
       page: () => const SplashScreen(),
       binding: SplashBinding(),
     ),
-    GetPage(
-      name: AppRoutes.onboarding,
-      page: () => const OnboardingScreen(),
-    ),
+    GetPage(name: AppRoutes.onboarding, page: () => const OnboardingScreen()),
     GetPage(
       name: AppRoutes.login,
       page: () => LoginScreen(),

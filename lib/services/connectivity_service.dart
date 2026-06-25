@@ -5,14 +5,16 @@ import 'package:get/get.dart';
 class ConnectivityService extends GetxService {
   final Connectivity _connectivity = Connectivity();
   late StreamSubscription<List<ConnectivityResult>> _connectivitySubscription;
-  
+
   final RxBool isOnline = true.obs;
 
   @override
   void onInit() {
     super.onInit();
     _initConnectivity();
-    _connectivitySubscription = _connectivity.onConnectivityChanged.listen(_updateConnectionStatus);
+    _connectivitySubscription = _connectivity.onConnectivityChanged.listen(
+      _updateConnectionStatus,
+    );
   }
 
   @override

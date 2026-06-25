@@ -43,12 +43,9 @@ class AuthController extends GetxController {
     final result = await getCurrentUserProfileUseCase();
 
     isProfileLoading.value = false;
-    result.fold(
-      (failure) {
-        Get.log('Could not load existing profile info: ${failure.message}');
-      },
-      _populateProfileFields,
-    );
+    result.fold((failure) {
+      Get.log('Could not load existing profile info: ${failure.message}');
+    }, _populateProfileFields);
   }
 
   Future<void> sendOtp() async {

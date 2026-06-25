@@ -2,30 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../constants/color_constants.dart';
-import '../../../../core/routes/app_routes.dart';
-import '../../../auth/data/datasources/auth_remote_data_source.dart';
-import '../../../auth/data/repositories/auth_repository_impl.dart';
-import '../../../auth/domain/usecases/auth_usecases.dart';
 import '../controllers/profile_controller.dart';
+import 'privacy_screen.dart';
+import 'personal_info_screen.dart';
+import 'qr_code_screen.dart';
+import 'theme_screen.dart';
+import 'invite_friend_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   ProfileScreen({super.key});
 
-  final ProfileController controller = Get.isRegistered<ProfileController>()
-      ? Get.find<ProfileController>()
-      : Get.put(ProfileController(
-          getCurrentUserProfileUseCase: Get.isRegistered<GetCurrentUserProfileUseCase>()
-              ? Get.find<GetCurrentUserProfileUseCase>()
-              : Get.put(GetCurrentUserProfileUseCase(
-                  Get.isRegistered<AuthRepositoryImpl>()
-                      ? Get.find<AuthRepositoryImpl>()
-                      : Get.put(AuthRepositoryImpl(
-                          Get.isRegistered<AuthRemoteDataSource>()
-                              ? Get.find<AuthRemoteDataSource>()
-                              : Get.put(AuthRemoteDataSourceImpl()),
-                        )),
-                )),
-        ));
+  final ProfileController controller = Get.find<ProfileController>();
 
   @override
   Widget build(BuildContext context) {
@@ -60,11 +47,16 @@ class ProfileScreen extends StatelessWidget {
                       CircleAvatar(
                         radius: 30,
                         backgroundColor: const Color(0xFFD9D9D9),
-                        backgroundImage: (user?.photo != null && user!.photo!.isNotEmpty)
+                        backgroundImage:
+                            (user?.photo != null && user!.photo!.isNotEmpty)
                             ? CachedNetworkImageProvider(user.photo!)
                             : null,
                         child: (user?.photo == null || user!.photo!.isEmpty)
-                            ? const Icon(Icons.person, size: 32, color: ColorConstants.textSecondary)
+                            ? const Icon(
+                                Icons.person,
+                                size: 32,
+                                color: ColorConstants.textSecondary,
+                              )
                             : null,
                       ),
                       const SizedBox(width: 16),
@@ -82,7 +74,8 @@ class ProfileScreen extends StatelessWidget {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              (user?.mobileNumber != null && user!.mobileNumber!.isNotEmpty)
+                              (user?.mobileNumber != null &&
+                                      user!.mobileNumber!.isNotEmpty)
                                   ? user.mobileNumber!
                                   : '+91 85320 59232',
                               style: const TextStyle(
@@ -93,10 +86,13 @@ class ProfileScreen extends StatelessWidget {
                           ],
                         ),
                       ),
-                      const Icon(
-                        Icons.qr_code,
-                        color: ColorConstants.primaryBlue,
-                        size: 28,
+                      GestureDetector(
+                        onTap: () => Get.to(() => QrCodeScreen()),
+                        child: Icon(
+                          Icons.qr_code,
+                          color: ColorConstants.primaryBlue,
+                          size: 28,
+                        ),
                       ),
                     ],
                   );
@@ -116,43 +112,47 @@ class ProfileScreen extends StatelessWidget {
               _buildSettingTile(
                 icon: Icons.person_outline,
                 title: 'Personal Info',
-                onTap: () => Get.toNamed(AppRoutes.profileInfo),
+                onTap: () => Get.to(() => PersonalInfoScreen()),
               ),
               _buildSettingTile(
                 icon: Icons.wb_sunny_outlined,
                 title: 'Theme',
-                onTap: () => controller.toggleTheme(),
+                onTap: () => Get.to(() => ThemeScreen()),
               ),
               _buildSettingTile(
                 icon: Icons.lock_outline,
                 title: 'Privacy',
-                onTap: () => Get.snackbar('Privacy', 'Privacy settings coming soon'),
+                onTap: () => Get.to(() => PrivacyScreen()),
               ),
               _buildSettingTile(
                 icon: Icons.notifications_none,
                 title: 'Notifications',
-                trailing: Obx(() => Switch(
-                  padding: EdgeInsets.zero,
-                  value: controller.notificationsEnabled.value,
-                  onChanged: (val) => controller.toggleNotifications(val),
-                  activeThumbColor: ColorConstants.white,
-                  activeTrackColor: ColorConstants.primaryBlue,
-                )),
+                trailing: Obx(
+                  () => Switch(
+                    padding: EdgeInsets.zero,
+                    value: controller.notificationsEnabled.value,
+                    onChanged: (val) => controller.toggleNotifications(val),
+                    activeThumbColor: ColorConstants.white,
+                    activeTrackColor: ColorConstants.primaryBlue,
+                  ),
+                ),
               ),
               _buildSettingTile(
                 icon: Icons.group_outlined,
                 title: 'Invite a friend',
-                onTap: () => Get.snackbar('Invite', 'Invitation link copied to clipboard'),
+                onTap: () => Get.to(() => InviteFriendScreen()),
               ),
               _buildSettingTile(
                 icon: Icons.star_outline,
                 title: 'Rate us',
-                onTap: () => Get.snackbar('Rate us', 'Thank you for your feedback!'),
+                onTap: () =>
+                    Get.snackbar('Rate us', 'Thank you for your feedback!'),
               ),
               _buildSettingTile(
                 icon: Icons.policy_outlined,
                 title: 'Privacy Policy',
-                onTap: () => Get.snackbar('Privacy Policy', 'Opening Privacy Policy'),
+                onTap: () =>
+                    Get.snackbar('Privacy Policy', 'Opening Privacy Policy'),
               ),
               const SizedBox(height: 40),
               // Logout Button
@@ -161,11 +161,18 @@ class ProfileScreen extends StatelessWidget {
                   onTap: () => controller.logout(),
                   behavior: HitTestBehavior.opaque,
                   child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 16.0,
+                      vertical: 8.0,
+                    ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.power_settings_new, color: Colors.red, size: 20),
+                        Icon(
+                          Icons.power_settings_new,
+                          color: Colors.red,
+                          size: 20,
+                        ),
                         SizedBox(width: 8),
                         Text(
                           'Logout',
@@ -214,7 +221,10 @@ class ProfileScreen extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(10),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16.0,
+              vertical: 14.0,
+            ),
             child: Row(
               children: [
                 Icon(icon, color: ColorConstants.primaryBlue, size: 22),

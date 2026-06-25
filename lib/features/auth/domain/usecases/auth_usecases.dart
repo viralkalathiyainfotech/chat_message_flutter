@@ -26,8 +26,16 @@ class UpdateProfileInfoUseCase {
   final AuthRepository repository;
   UpdateProfileInfoUseCase(this.repository);
 
-  Future<Either<Failure, User>> call(String userName, String bio, XFile? photo) {
-    return repository.updateProfileInfo(userName: userName, bio: bio, photo: photo);
+  Future<Either<Failure, User>> call(
+    String userName,
+    String bio,
+    XFile? photo,
+  ) {
+    return repository.updateProfileInfo(
+      userName: userName,
+      bio: bio,
+      photo: photo,
+    );
   }
 }
 

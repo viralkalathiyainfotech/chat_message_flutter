@@ -44,7 +44,8 @@ class NotificationNavigationService extends GetxService {
     }
 
     final existing = _realmHelper.realm.find<UserRealm>(chatId);
-    final user = existing ??
+    final user =
+        existing ??
         UserRealm(
           chatId,
           userName:

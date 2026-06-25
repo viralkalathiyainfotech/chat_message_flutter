@@ -8,8 +8,8 @@ import 'storage_service.dart';
 
 class ReceiptService extends GetxService {
   ReceiptService({ApiService? apiService, StorageService? storageService})
-      : _apiService = apiService ?? Get.find<ApiService>(),
-        _storageService = storageService ?? Get.find<StorageService>();
+    : _apiService = apiService ?? Get.find<ApiService>(),
+      _storageService = storageService ?? Get.find<StorageService>();
 
   final ApiService _apiService;
   final StorageService _storageService;
@@ -62,7 +62,10 @@ class ReceiptService extends GetxService {
   Future<void> flushPendingDelivered() async {
     final pending = _readIds(_pendingDeliveredKey);
     if (pending.isEmpty) return;
-    await _storageService.saveString(_pendingDeliveredKey, jsonEncode(<String>[]));
+    await _storageService.saveString(
+      _pendingDeliveredKey,
+      jsonEncode(<String>[]),
+    );
     await markDelivered(pending.toList());
   }
 

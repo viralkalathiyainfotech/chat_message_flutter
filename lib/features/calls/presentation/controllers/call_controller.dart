@@ -194,7 +194,7 @@ class CallController extends GetxController {
     if (!callService.isReceivingCall.value) return;
     final shouldCloseIncomingScreen =
         isIncomingCallScreenVisible.value ||
-            Get.currentRoute == _incomingCallRouteName;
+        Get.currentRoute == _incomingCallRouteName;
     if (!shouldCloseIncomingScreen) {
       if (callService.incomingCallData?['type'] == 'video') {
         await callService.prepareIncomingVideoPreview();

@@ -299,6 +299,18 @@ class SocketService extends GetxService {
     }
   }
 
+  void emitForwardMessage(Map<String, dynamic> messageData) {
+    if (isConnected.value) {
+      socket?.emit('forward-message', messageData);
+    }
+  }
+
+  void emitCreateGroup(Map<String, dynamic> groupData) {
+    if (isConnected.value) {
+      socket?.emit('create-group', groupData);
+    }
+  }
+
   void emitTypingStatus(String receiverId, bool isTyping) {
     if (isConnected.value) {
       final userId = _storageService.getUserId();
