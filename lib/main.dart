@@ -27,6 +27,7 @@ import 'services/message_sync_service.dart';
 import 'services/notification_navigation_service.dart';
 import 'services/push_notification_service.dart';
 import 'services/receipt_service.dart';
+import 'services/remote_control_service.dart';
 import 'services/session_privacy_service.dart';
 
 void main() async {
@@ -53,6 +54,7 @@ void main() async {
   Get.put(CallOverlayService());
   Get.put(CallPipService());
   Get.put(CallNotificationService());
+  Get.put(RemoteControlService());
   Get.put(CallController());
   Get.put(SyncService());
 

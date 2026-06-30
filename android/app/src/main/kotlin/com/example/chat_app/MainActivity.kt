@@ -174,7 +174,12 @@ class MainActivity : FlutterActivity() {
                             if (x == null || y == null) {
                                 result.error("bad_args", "tap requires x and y", null)
                             } else {
-                                result.success(RemoteControlAccessibilityService.tap(x, y))
+                                val started = RemoteControlAccessibilityService.tap(x, y) { success ->
+                                    result.success(success)
+                                }
+                                if (!started) {
+                                    result.success(false)
+                                }
                             }
                         }
                         "swipe" -> {
@@ -190,15 +195,18 @@ class MainActivity : FlutterActivity() {
                                 )
                             } else {
                                 val durationMs = args.longArg("durationMs") ?: 250L
-                                result.success(
-                                    RemoteControlAccessibilityService.swipe(
-                                        startX,
-                                        startY,
-                                        endX,
-                                        endY,
-                                        durationMs,
-                                    ),
-                                )
+                                val started = RemoteControlAccessibilityService.swipe(
+                                    startX,
+                                    startY,
+                                    endX,
+                                    endY,
+                                    durationMs,
+                                ) { success ->
+                                    result.success(success)
+                                }
+                                if (!started) {
+                                    result.success(false)
+                                }
                             }
                         }
                         "globalAction" -> {

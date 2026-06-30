@@ -4,6 +4,7 @@ import '../../../../services/call_service.dart';
 import '../../../../services/call_notification_service.dart';
 import '../../../../services/call_overlay_service.dart';
 import '../../../../services/call_pip_service.dart';
+import '../../../../services/remote_control_service.dart';
 import '../views/call_screen.dart';
 import '../views/incoming_call_screen.dart';
 import 'dart:async';
@@ -14,6 +15,8 @@ class CallController extends GetxController {
   final CallService callService = Get.find<CallService>();
   final CallOverlayService _overlayService = Get.find<CallOverlayService>();
   final CallPipService _pipService = Get.find<CallPipService>();
+  final RemoteControlService _remoteControlService =
+      Get.find<RemoteControlService>();
   final CallNotificationService _notificationService =
       Get.find<CallNotificationService>();
 
@@ -257,6 +260,15 @@ class CallController extends GetxController {
   }
 
   Future<void> enterPip() async {
+    if (_remoteControlService.grantedControllerId.value.isNotEmpty) {
+      Get.snackbar(
+        'PiP disabled',
+        'Picture-in-picture is disabled while remote control is active.',
+        snackPosition: SnackPosition.BOTTOM,
+      );
+      return;
+    }
+
     if (callService.isInCall.value && callService.isVideoCall) {
       final didEnter = await _pipService.enterPip();
       if (!didEnter) {

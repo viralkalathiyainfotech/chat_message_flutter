@@ -1,6 +1,7 @@
 package com.example.chat_app.remotecontrol
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityService.GestureResultCallback
 import android.accessibilityservice.GestureDescription
 import android.content.Context
 import android.content.Intent
@@ -46,9 +47,11 @@ class RemoteControlAccessibilityService : AccessibilityService() {
             )
         }
 
-        fun tap(x: Float, y: Float): Boolean {
-            val path = Path().apply { moveTo(x, y) }
-            return dispatch(path, 0L, 80L)
+        fun tap(x: Float, y: Float, onFinished: ((Boolean) -> Unit)? = null): Boolean {
+            val service = instance ?: return false
+            val point = service.toDisplayPoint(x, y)
+            val path = Path().apply { moveTo(point.first, point.second) }
+            return dispatch(path, 0L, 55L, onFinished)
         }
 
         fun swipe(
@@ -57,12 +60,16 @@ class RemoteControlAccessibilityService : AccessibilityService() {
             endX: Float,
             endY: Float,
             durationMs: Long,
+            onFinished: ((Boolean) -> Unit)? = null,
         ): Boolean {
+            val service = instance ?: return false
+            val start = service.toDisplayPoint(startX, startY)
+            val end = service.toDisplayPoint(endX, endY)
             val path = Path().apply {
-                moveTo(startX, startY)
-                lineTo(endX, endY)
+                moveTo(start.first, start.second)
+                lineTo(end.first, end.second)
             }
-            return dispatch(path, 0L, durationMs.coerceAtLeast(1L))
+            return dispatch(path, 0L, durationMs.coerceIn(80L, 550L), onFinished)
         }
 
         fun globalAction(action: String): Boolean {
@@ -90,12 +97,35 @@ class RemoteControlAccessibilityService : AccessibilityService() {
             return node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
         }
 
-        private fun dispatch(path: Path, startTimeMs: Long, durationMs: Long): Boolean {
+        private fun dispatch(
+            path: Path,
+            startTimeMs: Long,
+            durationMs: Long,
+            onFinished: ((Boolean) -> Unit)? = null,
+        ): Boolean {
             val service = instance ?: return false
             val gesture = GestureDescription.Builder()
                 .addStroke(GestureDescription.StrokeDescription(path, startTimeMs, durationMs))
                 .build()
-            return service.dispatchGesture(gesture, null, null)
+            val callback = onFinished?.let {
+                object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription?) {
+                        it(true)
+                    }
+
+                    override fun onCancelled(gestureDescription: GestureDescription?) {
+                        it(false)
+                    }
+                }
+            }
+            return service.dispatchGesture(gesture, callback, null)
         }
+    }
+
+    private fun toDisplayPoint(x: Float, y: Float): Pair<Float, Float> {
+        val metrics = resources.displayMetrics
+        val displayX = if (x in 0f..1f) x * metrics.widthPixels else x
+        val displayY = if (y in 0f..1f) y * metrics.heightPixels else y
+        return Pair(displayX, displayY)
     }
 }

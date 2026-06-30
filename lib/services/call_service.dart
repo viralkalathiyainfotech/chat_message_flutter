@@ -30,6 +30,7 @@ class CallService extends GetxService {
   bool _isTogglingScreenShare = false;
   bool _screenShareBackgroundExecutionEnabled = false;
   String? _lastScreenShareForegroundError;
+  Future<void>? _localRendererInitialization;
 
   // Reactive states
   final RxBool isCalling = false.obs;
@@ -90,7 +91,7 @@ class CallService extends GetxService {
   void onInit() {
     super.onInit();
     _setupSocketListeners();
-    localRenderer.value.initialize();
+    _localRendererInitialization = localRenderer.value.initialize();
   }
 
   void _setupSocketListeners() {
@@ -532,6 +533,7 @@ class CallService extends GetxService {
 
   Future<bool> _initLocalStream({required bool video}) async {
     if (_hasRequiredLocalMedia(video: video)) return true;
+    await _ensureLocalRendererInitialized();
 
     if (localStream != null) {
       await _disposeMediaStream(localStream);
@@ -567,6 +569,19 @@ class CallService extends GetxService {
     } catch (e) {
       Get.log("Error getting user media: $e", isError: true);
       return false;
+    }
+  }
+
+  Future<void> _ensureLocalRendererInitialized() async {
+    try {
+      final initialization =
+          _localRendererInitialization ?? localRenderer.value.initialize();
+      _localRendererInitialization = initialization;
+      await initialization;
+    } catch (e) {
+      Get.log('Reinitializing local renderer after failure: $e', isError: true);
+      _localRendererInitialization = localRenderer.value.initialize();
+      await _localRendererInitialization;
     }
   }
 
@@ -1295,6 +1310,7 @@ class CallService extends GetxService {
   Future<void> _startScreenShare({required bool fullScreenOnly}) async {
     MediaStream? displayMedia;
     try {
+      await _ensureLocalRendererInitialized();
       final cameraTracks = localStream!.getVideoTracks();
       if (cameraTracks.isEmpty) {
         Get.log('Cannot start screen share without an active video track');
@@ -1338,14 +1354,7 @@ class CallService extends GetxService {
         return;
       }
 
-      displayMedia = await navigator.mediaDevices.getDisplayMedia({
-        'video': {
-          'width': 960,
-          'height': 540,
-          'frameRate': 12,
-        },
-        'audio': false,
-      });
+      displayMedia = await _getDisplayMediaWithTextureRetry();
 
       final displayTracks = displayMedia.getVideoTracks();
       if (displayTracks.isEmpty) {
@@ -1379,6 +1388,7 @@ class CallService extends GetxService {
       localRenderer.value.srcObject = displayMedia;
       localRenderer.refresh();
       isScreenSharing.value = true;
+      _emitScreenShareState(true);
 
       screenTrack.onEnded = () {
         if (!_isStoppingScreenShare && isScreenSharing.value) {
@@ -1422,6 +1432,35 @@ class CallService extends GetxService {
     );
   }
 
+  Future<MediaStream> _getDisplayMediaWithTextureRetry() async {
+    const constraints = {
+      'video': {'width': 960, 'height': 540, 'frameRate': 12},
+      'audio': false,
+    };
+
+    Object? lastError;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        if (attempt > 0) {
+          await _ensureLocalRendererInitialized();
+          await Future<void>.delayed(Duration(milliseconds: 180 * attempt));
+        }
+        return await navigator.mediaDevices.getDisplayMedia(constraints);
+      } catch (e) {
+        lastError = e;
+        final message = e.toString().toLowerCase();
+        if (!message.contains('surfacetexturehelper')) {
+          rethrow;
+        }
+        Get.log(
+          'Screen capture surface texture helper was not ready; retrying (${attempt + 1}/3)',
+        );
+      }
+    }
+
+    throw lastError ?? StateError('Unable to start screen capture.');
+  }
+
   Future<void> _stopScreenShare() async {
     if (_isStoppingScreenShare) return;
     _isStoppingScreenShare = true;
@@ -1434,10 +1473,7 @@ class CallService extends GetxService {
               : null);
 
       if (cameraTrack != null) {
-        await _replaceOutgoingVideoTrack(
-          cameraTrack,
-          stream: localStream,
-        );
+        await _replaceOutgoingVideoTrack(cameraTrack, stream: localStream);
       }
 
       await _disposeMediaStream(_screenShareStream);
@@ -1447,6 +1483,7 @@ class CallService extends GetxService {
       localRenderer.value.srcObject = localStream;
       localRenderer.refresh();
       isScreenSharing.value = false;
+      _emitScreenShareState(false);
       await _stopScreenShareForegroundState();
     } catch (e) {
       Get.log("Error stopping screen share: $e", isError: true);
@@ -1503,6 +1540,16 @@ class CallService extends GetxService {
       Get.log('No outgoing video sender found for screen share', isError: true);
     }
     return replacedCount > 0;
+  }
+
+  void _emitScreenShareState(bool isSharing) {
+    final roomId = currentRoomId;
+    if (roomId == null) return;
+    _socketService.emitCallScreenShareState({
+      'roomId': roomId,
+      'isSharing': isSharing,
+      'from': _storageService.getUserId(),
+    });
   }
 
   Future<void> _configureVideoSender(
@@ -1607,18 +1654,19 @@ class CallService extends GetxService {
     try {
       final remoteName = callDisplayName;
       if (active) {
-        final didStart = await _notificationChannel
-            .invokeMethod<bool>('startScreenShareForeground', {
-              'title': 'Screen sharing',
-              'body': '$remoteName - screen sharing',
-            });
+        final didStart = await _notificationChannel.invokeMethod<bool>(
+          'startScreenShareForeground',
+          {'title': 'Screen sharing', 'body': '$remoteName - screen sharing'},
+        );
         if (didStart != true) {
           _lastScreenShareForegroundError =
               'Android did not confirm the screen-capture foreground service.';
         }
         return didStart == true;
       }
-      await _notificationChannel.invokeMethod<void>('stopScreenShareForeground');
+      await _notificationChannel.invokeMethod<void>(
+        'stopScreenShareForeground',
+      );
       return true;
     } on PlatformException catch (e) {
       _lastScreenShareForegroundError =
@@ -1688,6 +1736,10 @@ class CallService extends GetxService {
   }
 
   void _resetCallState() {
+    if (isScreenSharing.value) {
+      _emitScreenShareState(false);
+    }
+
     isCalling.value = false;
     isReceivingCall.value = false;
     isInCall.value = false;

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import '../../../../services/remote_control_service.dart';
 import '../controllers/call_controller.dart';
 
 class CallScreen extends StatefulWidget {
@@ -11,7 +12,14 @@ class CallScreen extends StatefulWidget {
 }
 
 class _CallScreenState extends State<CallScreen> {
+  static const double _screenShareBottomInset = 128;
+
   final CallController controller = Get.find<CallController>();
+  final RemoteControlService remoteControlService =
+      Get.find<RemoteControlService>();
+  Offset? _remoteControlPanStart;
+  Offset? _remoteControlPanLast;
+  DateTime? _remoteControlPanStartedAt;
 
   @override
   void initState() {
@@ -39,19 +47,39 @@ class _CallScreenState extends State<CallScreen> {
       },
       child: Scaffold(
         backgroundColor: Colors.black,
-        body: Obx(
-          () => controller.isInPipMode.value
+        body: Obx(() {
+          final isVideoCall = controller.callService.isVideoCall;
+          final remoteScreenSharing =
+              remoteControlService.remoteScreenSharing.value;
+          final remoteControlActive =
+              isVideoCall &&
+              remoteControlService.hasControl.value &&
+              remoteScreenSharing &&
+              controller.callService.remoteRenderers.isNotEmpty;
+
+          return controller.isInPipMode.value
               ? _buildPipBody()
               : SafeArea(
                   child: Stack(
                     children: [
-                      
-                      Positioned.fill(
-                        child: controller.callService.isVideoCall
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: remoteScreenSharing
+                            ? _screenShareBottomInset
+                            : 0,
+                        child: isVideoCall
                             ? _buildRemoteVideoStage()
                             : _buildVoiceCallStage(),
                       ),
-                      if (controller.callService.isVideoCall &&
+                      if (remoteControlActive)
+                        _buildRemoteControlTouchLayer(
+                          bottomInset: _screenShareBottomInset,
+                        ),
+                      if (remoteControlActive) _buildRemoteControlActions(),
+                      if (isVideoCall &&
+                          !remoteControlActive &&
                           (!controller.callService.isGroupCall ||
                               controller
                                   .callService
@@ -62,8 +90,8 @@ class _CallScreenState extends State<CallScreen> {
                       _buildBottomControls(),
                     ],
                   ),
-                ),
-        ),
+                );
+        }),
       ),
     );
   }
@@ -230,6 +258,11 @@ class _CallScreenState extends State<CallScreen> {
       final isGroupCall = controller.callService.isGroupCall;
       final hasLocal = controller.callService.hasLocalStream.value;
       final isLocalVideoEnabled = controller.callService.isVideoEnabled.value;
+      final isRemoteScreenShare =
+          remoteControlService.remoteScreenSharing.value;
+      final remoteObjectFit = isRemoteScreenShare
+          ? RTCVideoViewObjectFit.RTCVideoViewObjectFitContain
+          : RTCVideoViewObjectFit.RTCVideoViewObjectFitCover;
 
       if (isGroupCall) {
         final tiles = <_VideoTile>[
@@ -277,7 +310,7 @@ class _CallScreenState extends State<CallScreen> {
       }
 
       if (renderers.length == 1) {
-        return _buildRendererView(renderers[0]);
+        return _buildRendererView(renderers[0], objectFit: remoteObjectFit);
       }
 
       return GridView.builder(
@@ -294,10 +327,7 @@ class _CallScreenState extends State<CallScreen> {
             decoration: BoxDecoration(
               border: Border.all(color: Colors.white24, width: 2),
             ),
-            child: RTCVideoView(
-              renderers[index],
-              objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-            ),
+            child: RTCVideoView(renderers[index], objectFit: remoteObjectFit),
           );
         },
       );
@@ -482,14 +512,15 @@ class _CallScreenState extends State<CallScreen> {
     );
   }
 
-  Widget _buildRendererView(RTCVideoRenderer renderer, {bool mirror = false}) {
+  Widget _buildRendererView(
+    RTCVideoRenderer renderer, {
+    bool mirror = false,
+    RTCVideoViewObjectFit objectFit =
+        RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+  }) {
     return ColoredBox(
       color: Colors.black,
-      child: RTCVideoView(
-        renderer,
-        mirror: mirror,
-        objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-      ),
+      child: RTCVideoView(renderer, mirror: mirror, objectFit: objectFit),
     );
   }
 
@@ -513,7 +544,9 @@ class _CallScreenState extends State<CallScreen> {
               Obx(() {
                 final isInCall = controller.callService.isInCall.value;
                 final canUsePip =
-                    controller.callService.isVideoCall && isInCall;
+                    controller.callService.isVideoCall &&
+                    isInCall &&
+                    remoteControlService.grantedControllerId.value.isEmpty;
                 return canUsePip
                     ? IconButton(
                         icon: const Icon(
@@ -630,9 +663,152 @@ class _CallScreenState extends State<CallScreen> {
                 onLongPress: controller.callService.toggleFullScreenShare,
               ),
             ),
+          if (controller.callService.isVideoCall)
+            Obx(() {
+              final showRemoteControl =
+                  remoteControlService.remoteScreenSharing.value ||
+                  remoteControlService.hasControl.value;
+              if (!showRemoteControl) return const SizedBox.shrink();
+
+              return _buildControlButton(
+                icon: Icons.touch_app,
+                isActive: remoteControlService.hasControl.value,
+                onPressed: _handleRemoteControlButton,
+                onLongPress: remoteControlService.hasControl.value
+                    ? remoteControlService.stopControlling
+                    : null,
+              );
+            }),
         ],
       ),
     );
+  }
+
+  Widget _buildRemoteControlTouchLayer({required double bottomInset}) {
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: bottomInset,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          Offset normalize(Offset position) {
+            final width = constraints.maxWidth <= 0
+                ? 1.0
+                : constraints.maxWidth;
+            final height = constraints.maxHeight <= 0
+                ? 1.0
+                : constraints.maxHeight;
+            final x = (position.dx / width).clamp(0.0, 1.0);
+            final y = (position.dy / height).clamp(0.0, 1.0);
+            return Offset(x, y);
+          }
+
+          void resetPan() {
+            _remoteControlPanStart = null;
+            _remoteControlPanLast = null;
+            _remoteControlPanStartedAt = null;
+          }
+
+          return GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTapUp: (details) {
+              final point = normalize(details.localPosition);
+              remoteControlService.sendTap(
+                normalizedX: point.dx,
+                normalizedY: point.dy,
+              );
+            },
+            onPanStart: (details) {
+              final point = normalize(details.localPosition);
+              _remoteControlPanStart = point;
+              _remoteControlPanLast = point;
+              _remoteControlPanStartedAt = DateTime.now();
+            },
+            onPanEnd: (_) {
+              final start = _remoteControlPanStart;
+              final end = _remoteControlPanLast;
+              if (start != null &&
+                  end != null &&
+                  (end - start).distance > 0.02) {
+                final elapsedMs = DateTime.now()
+                    .difference(_remoteControlPanStartedAt ?? DateTime.now())
+                    .inMilliseconds;
+                remoteControlService.sendSwipe(
+                  startX: start.dx,
+                  startY: start.dy,
+                  endX: end.dx,
+                  endY: end.dy,
+                  durationMs: elapsedMs.clamp(90, 450).toInt(),
+                );
+              }
+              resetPan();
+            },
+            onPanCancel: resetPan,
+            onPanUpdate: (details) {
+              if (_remoteControlPanStart == null) return;
+              _remoteControlPanLast = normalize(details.localPosition);
+            },
+            child: const SizedBox.expand(),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildRemoteControlActions() {
+    return Positioned(
+      top: 92,
+      right: 18,
+      child: SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildRemoteActionButton(
+              icon: Icons.arrow_back,
+              onPressed: remoteControlService.sendBack,
+            ),
+            const SizedBox(height: 10),
+            _buildRemoteActionButton(
+              icon: Icons.home,
+              onPressed: remoteControlService.sendHome,
+            ),
+            const SizedBox(height: 10),
+            _buildRemoteActionButton(
+              icon: Icons.apps,
+              onPressed: remoteControlService.sendRecents,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRemoteActionButton({
+    required IconData icon,
+    required VoidCallback onPressed,
+  }) {
+    return Material(
+      color: Colors.black.withValues(alpha: 0.46),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onPressed,
+        child: SizedBox(
+          width: 46,
+          height: 46,
+          child: Icon(icon, color: Colors.white, size: 24),
+        ),
+      ),
+    );
+  }
+
+  void _handleRemoteControlButton() {
+    if (remoteControlService.hasControl.value) {
+      remoteControlService.stopControlling();
+      return;
+    }
+    remoteControlService.requestControl();
   }
 
   IconData _selectedAudioOutputIcon() {

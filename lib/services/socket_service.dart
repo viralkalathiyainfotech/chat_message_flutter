@@ -33,6 +33,15 @@ class SocketService extends GetxService {
   Function(Map<String, dynamic>)? onEndCall;
   Function(Map<String, dynamic>)? onUserInCall;
 
+  // Remote control callbacks
+  Function(Map<String, dynamic>)? onControlRequest;
+  Function(Map<String, dynamic>)? onControlPermission;
+  Function(Map<String, dynamic>)? onControlEvent;
+  Function(dynamic)? onControlRevoked;
+  Function(Map<String, dynamic>)? onControlGranted;
+  Function(Map<String, dynamic>)? onControlRevokedForHost;
+  Function(Map<String, dynamic>)? onCallScreenShareState;
+
   @override
   void onInit() {
     super.onInit();
@@ -283,6 +292,44 @@ class SocketService extends GetxService {
       if (map != null && onUserInCall != null) onUserInCall!(map);
     });
 
+    socket?.on('control-request', (data) {
+      final map = _safeCast(data);
+      if (map != null && onControlRequest != null) onControlRequest!(map);
+    });
+
+    socket?.on('control-permission', (data) {
+      final map = _safeCast(data) ?? {'value': data};
+      if (onControlPermission != null) onControlPermission!(map);
+    });
+
+    socket?.on('control-event', (data) {
+      final map = _safeCast(data);
+      if (map != null && onControlEvent != null) onControlEvent!(map);
+    });
+
+    socket?.on('control-revoked', (data) {
+      if (onControlRevoked != null) onControlRevoked!(data);
+    });
+
+    socket?.on('control-granted', (data) {
+      final map = _safeCast(data);
+      if (map != null && onControlGranted != null) onControlGranted!(map);
+    });
+
+    socket?.on('control-revoked-for-host', (data) {
+      final map = _safeCast(data);
+      if (map != null && onControlRevokedForHost != null) {
+        onControlRevokedForHost!(map);
+      }
+    });
+
+    socket?.on('call-screen-share-state', (data) {
+      final map = _safeCast(data);
+      if (map != null && onCallScreenShareState != null) {
+        onCallScreenShareState!(map);
+      }
+    });
+
     Get.log('==== LISTENERS ATTACHED, NOW CONNECTING... ====');
     socket?.connect();
   }
@@ -422,6 +469,36 @@ class SocketService extends GetxService {
   void emitSaveCallMessage(Map<String, dynamic> data) {
     if (isConnected.value) {
       socket?.emit('save-call-message', data);
+    }
+  }
+
+  void emitRequestControl(Map<String, dynamic> data) {
+    if (isConnected.value) {
+      socket?.emit('request-control', data);
+    }
+  }
+
+  void emitGrantControl(Map<String, dynamic> data) {
+    if (isConnected.value) {
+      socket?.emit('grant-control', data);
+    }
+  }
+
+  void emitRevokeControl(Map<String, dynamic> data) {
+    if (isConnected.value) {
+      socket?.emit('revoke-control', data);
+    }
+  }
+
+  void emitControlEvent(Map<String, dynamic> data) {
+    if (isConnected.value) {
+      socket?.emit('control-event', data);
+    }
+  }
+
+  void emitCallScreenShareState(Map<String, dynamic> data) {
+    if (isConnected.value) {
+      socket?.emit('call-screen-share-state', data);
     }
   }
 }
