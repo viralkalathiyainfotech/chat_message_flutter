@@ -17,13 +17,23 @@ class CallForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_STOP -> {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
-                return START_NOT_STICKY
+        try {
+            lastForegroundStartError = "CallForegroundService reached onStartCommand but did not start foreground yet"
+            when (intent?.action) {
+                ACTION_STOP -> {
+                    activeForegroundServiceType = 0
+                    lastForegroundStartError = null
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+                ACTION_SHOW, null -> showNotification(intent)
             }
-            ACTION_SHOW, null -> showNotification(intent)
+        } catch (e: Throwable) {
+            Log.e(TAG, "Call foreground service failed in onStartCommand", e)
+            activeForegroundServiceType = 0
+            lastForegroundStartError = e.message ?: e.javaClass.simpleName
+            stopSelf()
         }
         return START_STICKY
     }
@@ -51,17 +61,22 @@ class CallForegroundService : Service() {
                 callServiceType = callServiceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
             }
 
-            var serviceType = callServiceType
-            if (isScreenSharing) {
-                serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            val serviceType = if (isScreenSharing) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            } else {
+                callServiceType
             }
             if (isScreenSharing) {
                 startForegroundSafely(notification, serviceType, callServiceType)
             } else {
                 startForeground(CallNotificationHelper.CALL_NOTIFICATION_ID, notification, serviceType)
+                activeForegroundServiceType = serviceType
+                lastForegroundStartError = null
             }
         } else {
             startForeground(CallNotificationHelper.CALL_NOTIFICATION_ID, notification)
+            activeForegroundServiceType = 0
+            lastForegroundStartError = null
         }
     }
 
@@ -76,20 +91,40 @@ class CallForegroundService : Service() {
                 notification,
                 requestedServiceType,
             )
+            activeForegroundServiceType = requestedServiceType
+            lastForegroundStartError = null
         } catch (e: SecurityException) {
             Log.w(TAG, "Media projection foreground service was not allowed; keeping call notification active", e)
+            lastForegroundStartError = e.message
             startForeground(
                 CallNotificationHelper.CALL_NOTIFICATION_ID,
                 notification,
                 fallbackServiceType,
             )
+            activeForegroundServiceType = fallbackServiceType
         } catch (e: IllegalArgumentException) {
             Log.w(TAG, "Media projection foreground service type was rejected; keeping call notification active", e)
+            lastForegroundStartError = e.message
             startForeground(
                 CallNotificationHelper.CALL_NOTIFICATION_ID,
                 notification,
                 fallbackServiceType,
             )
+            activeForegroundServiceType = fallbackServiceType
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Unable to start media projection foreground service; keeping call notification active", e)
+            lastForegroundStartError = e.message
+            runCatching {
+                startForeground(
+                    CallNotificationHelper.CALL_NOTIFICATION_ID,
+                    notification,
+                    fallbackServiceType,
+                )
+                activeForegroundServiceType = fallbackServiceType
+            }.onFailure {
+                Log.w(TAG, "Unable to start fallback call foreground service", it)
+                activeForegroundServiceType = 0
+            }
         }
     }
 
@@ -103,5 +138,29 @@ class CallForegroundService : Service() {
         const val EXTRA_IS_CAMERA_ENABLED = "isCameraEnabled"
         const val EXTRA_IS_SCREEN_SHARING = "isScreenSharing"
         private const val TAG = "CallForegroundService"
+
+        @Volatile
+        var activeForegroundServiceType: Int = 0
+            private set
+
+        @Volatile
+        var lastForegroundStartError: String? = null
+            private set
+
+        fun resetMediaProjectionStart() {
+            activeForegroundServiceType = 0
+            lastForegroundStartError = null
+        }
+
+        fun markMediaProjectionStartError(message: String?) {
+            activeForegroundServiceType = 0
+            lastForegroundStartError = message
+        }
+
+        fun isMediaProjectionForegroundActive(): Boolean {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return true
+            return activeForegroundServiceType and
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION != 0
+        }
     }
 }

@@ -8,6 +8,7 @@ import '../controllers/privacy_controller.dart';
 import '../../../auth/data/datasources/auth_remote_data_source.dart';
 import '../../../auth/data/repositories/auth_repository_impl.dart';
 import '../../../auth/domain/usecases/auth_usecases.dart';
+import '../../../auth/domain/repositories/auth_repository.dart';
 
 class ProfileBinding extends Bindings {
   @override
@@ -18,7 +19,7 @@ class ProfileBinding extends Bindings {
 
     // Repositories
     Get.lazyPut<ProfileRepository>(() => ProfileRepositoryImpl(remoteDataSource: Get.find()));
-    Get.lazyPut<AuthRepositoryImpl>(() => AuthRepositoryImpl(Get.find()));
+    Get.lazyPut<AuthRepository>(() => AuthRepositoryImpl(Get.find()));
 
     // Use cases
     Get.lazyPut(() => UpdateUserGroupToJoinUseCase(Get.find()));
@@ -32,17 +33,17 @@ class ProfileBinding extends Bindings {
 
     // Controllers
     Get.lazyPut(() => ProfileController(
-      getCurrentUserProfileUseCase: Get.find(),
-      editUserUseCase: Get.find(),
-      qrLoginUseCase: Get.find(),
-      getContactUsersUseCase: Get.find(),
-      addContactListUseCase: Get.find(),
+      getCurrentUserProfileUseCase: Get.find<GetCurrentUserProfileUseCase>(),
+      editUserUseCase: Get.find<EditUserUseCase>(),
+      qrLoginUseCase: Get.find<QrLoginUseCase>(),
+      getContactUsersUseCase: Get.find<GetContactUsersUseCase>(),
+      addContactListUseCase: Get.find<AddContactListUseCase>(),
     ));
 
     Get.lazyPut(() => PrivacyController(
-      updateUserGroupToJoinUseCase: Get.find(),
-      updateUserProfilePhotoPrivacyUseCase: Get.find(),
-      blockUserUseCase: Get.find(),
+      updateUserGroupToJoinUseCase: Get.find<UpdateUserGroupToJoinUseCase>(),
+      updateUserProfilePhotoPrivacyUseCase: Get.find<UpdateUserProfilePhotoPrivacyUseCase>(),
+      blockUserUseCase: Get.find<BlockUserUseCase>(),
     ));
   }
 }

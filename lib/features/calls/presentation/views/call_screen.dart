@@ -45,6 +45,7 @@ class _CallScreenState extends State<CallScreen> {
               : SafeArea(
                   child: Stack(
                     children: [
+                      
                       Positioned.fill(
                         child: controller.callService.isVideoCall
                             ? _buildRemoteVideoStage()
@@ -626,6 +627,7 @@ class _CallScreenState extends State<CallScreen> {
                 icon: Icons.screen_share,
                 isActive: controller.callService.isScreenSharing.value,
                 onPressed: controller.callService.toggleScreenShare,
+                onLongPress: controller.callService.toggleFullScreenShare,
               ),
             ),
         ],
@@ -715,9 +717,11 @@ class _CallScreenState extends State<CallScreen> {
     required IconData icon,
     required bool isActive,
     required VoidCallback onPressed,
+    VoidCallback? onLongPress,
   }) {
     return GestureDetector(
       onTap: onPressed,
+      onLongPress: onLongPress,
       child: Container(
         padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(

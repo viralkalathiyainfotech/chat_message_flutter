@@ -121,6 +121,35 @@ class CallNotificationHelper(private val context: Context) {
         return builder.build()
     }
 
+    fun buildScreenShareNotification(
+        title: String,
+        body: String,
+    ): Notification {
+        val openPendingIntent = buildActivityPendingIntent(
+            MainActivity.ACTION_OPEN_CALL,
+            SCREEN_SHARE_REQUEST_CODE,
+        )
+
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(context, CALL_CHANNEL_ID)
+        } else {
+            Notification.Builder(context)
+        }
+
+        return builder
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setContentIntent(openPendingIntent)
+            .setOngoing(true)
+            .setCategory(Notification.CATEGORY_SERVICE)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setOnlyAlertOnce(true)
+            .setWhen(System.currentTimeMillis())
+            .setShowWhen(true)
+            .build()
+    }
+
     fun showIncomingCallNotification(
         title: String,
         body: String,
@@ -272,5 +301,6 @@ class CallNotificationHelper(private val context: Context) {
         private const val OPEN_INCOMING_CALL_REQUEST_CODE = 4105
         private const val ANSWER_INCOMING_CALL_REQUEST_CODE = 4106
         private const val DECLINE_INCOMING_CALL_REQUEST_CODE = 4107
+        private const val SCREEN_SHARE_REQUEST_CODE = 4108
     }
 }

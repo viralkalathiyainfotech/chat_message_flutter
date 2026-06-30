@@ -152,158 +152,209 @@ class ChatsListScreen extends StatelessWidget {
   Widget _buildChatItem(UserRealm chat, BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
-      child: ListTile(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 10,
-        ),
-        tileColor: Theme.of(context).cardColor,
-        horizontalTitleGap: 10,
-        leading: Stack(
-          children: [
-            CircleAvatar(
-              radius: 20,
-              backgroundImage: chat.photo != null
-                  ? CachedNetworkImageProvider(chat.photo!)
-                  : null,
-              child: chat.photo == null
-                  ? Icon(chat.isGroup == true ? Icons.group : Icons.person)
-                  : null,
-            ),
-            Obx(() {
-              final isOnline = Get.find<SocketService>().onlineUsers.contains(
-                chat.id,
-              );
-              if (isOnline) {
-                return Positioned(
-                  right: 15,
-                  bottom: 0,
-                  child: Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      color: Colors.green,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: ColorConstants.white, width: 1),
-                    ),
-                  ),
-                );
-              }
-              return const SizedBox.shrink();
-            }),
-          ],
-        ),
-        title: Text(
-          chat.userName ?? 'Unknown',
-          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-        ),
-        subtitle: Transform.translate(
-          offset: const Offset(0, 5),
-          child: Obx(() {
-            // Access updateTrigger to force refresh of lastMessage and unreadCount
-            controller.updateTrigger.value;
-            int unreadCount = RealmHelper().getUnreadCountForUser(chat.id);
-
-            MessageRealm? lastMessage = RealmHelper().getLastMessageForUser(
-              chat.id,
-            );
-            String subtitleText = 'Tap to chat...';
-
-            if (lastMessage != null) {
-              final content = lastMessage.content;
-              if (content?.type == 'text') {
-                subtitleText = EncryptionUtil.decrypt(content?.content ?? '');
-              } else if (content?.type == 'image') {
-                subtitleText = 'Photo';
-              } else if (content?.type == 'call') {
-                subtitleText = 'Call';
-              } else {
-                subtitleText = 'Attachment';
-              }
-            }
-
-            final syncService = Get.find<SyncService>();
-            final typingText = chat.isGroup == true
-                ? _formatGroupTypingText(
-                    syncService.typingUserIdsByChat[chat.id],
-                  )
-                : (syncService.typingUsers[chat.id] == true ? 'typing...' : '');
-            if (typingText.isNotEmpty) {
-              return Text(
-                typingText,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: ColorConstants.primaryBlue,
-                  fontWeight: FontWeight.w500,
-                  fontSize: 13,
-                ),
-              );
-            }
-            return Text(
-              subtitleText,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: unreadCount > 0
-                    ? ColorConstants.white
-                    : ColorConstants.white.withValues(alpha: 0.5),
-                fontSize: 13,
-              ),
-            );
-          }),
-        ),
-        trailing: Obx(() {
-          controller.updateTrigger.value;
-          int unreadCount = RealmHelper().getUnreadCountForUser(chat.id);
-
-          MessageRealm? lastMessage = RealmHelper().getLastMessageForUser(
-            chat.id,
-          );
-          String timeText = '';
-          if (lastMessage != null) {
-            timeText = _formatDate(lastMessage.createdAt);
-          }
-
-          return Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                timeText,
-                style: TextStyle(
-                  color: ColorConstants.white.withValues(alpha: 0.5),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w400,
-                ),
-              ),
-              const SizedBox(height: 5),
-              if (unreadCount > 0)
-                Container(
-                  height: 22.5,
-                  width: 22.5,
-                  decoration: BoxDecoration(
-                    color: ColorConstants.primaryBlue,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Text(
-                      unreadCount > 9 ? '9+' : unreadCount.toString(),
-                      style: const TextStyle(
-                        color: ColorConstants.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          );
-        }),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: () {
           Get.to(() => ChatDetailScreen(user: chat));
         },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Row(
+            children: [
+              Stack(
+                children: [
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundImage: chat.photo != null
+                        ? CachedNetworkImageProvider(chat.photo!)
+                        : null,
+                    child: chat.photo == null
+                        ? Icon(
+                            chat.isGroup == true ? Icons.group : Icons.person,
+                          )
+                        : null,
+                  ),
+                  Obx(() {
+                    final isOnline = Get.find<SocketService>().onlineUsers
+                        .contains(chat.id);
+
+                    if (!isOnline) return const SizedBox.shrink();
+
+                    return Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: Colors.green,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: ColorConstants.white,
+                            width: 1,
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                ],
+              ),
+
+              const SizedBox(width: 10),
+
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      chat.userName ?? 'Unknown',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                      ),
+                    ),
+
+                    const SizedBox(height: 5),
+
+                    Obx(() {
+                      controller.updateTrigger.value;
+
+                      final unreadCount = RealmHelper().getUnreadCountForUser(
+                        chat.id,
+                      );
+
+                      final lastMessage = RealmHelper().getLastMessageForUser(
+                        chat.id,
+                      );
+
+                      String subtitleText = 'Tap to chat...';
+
+                      if (lastMessage != null) {
+                        final content = lastMessage.content;
+
+                        if (content?.type == 'text') {
+                          subtitleText = EncryptionUtil.decrypt(
+                            content?.content ?? '',
+                          );
+                        } else if (content?.type == 'image') {
+                          subtitleText = '📷 Photo';
+                        } else if (content?.type == 'call') {
+                          subtitleText = '📞 Call';
+                        } else if (content?.type == 'video') {
+                          subtitleText = '🎥 Video';
+                        } else if (content?.type == 'audio') {
+                          subtitleText = '🎵 Audio';
+                        } else {
+                          subtitleText = '📎 Attachment';
+                        }
+                      }
+
+                      final syncService = Get.find<SyncService>();
+
+                      final typingText = chat.isGroup == true
+                          ? _formatGroupTypingText(
+                              syncService.typingUserIdsByChat[chat.id],
+                            )
+                          : syncService.typingUsers[chat.id] == true
+                          ? 'typing...'
+                          : '';
+
+                      if (typingText.isNotEmpty) {
+                        return Text(
+                          typingText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: ColorConstants.primaryBlue,
+                            fontWeight: FontWeight.w500,
+                            fontSize: 13,
+                          ),
+                        );
+                      }
+
+                      return Text(
+                        subtitleText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: unreadCount > 0
+                              ? ColorConstants.white
+                              : ColorConstants.white.withValues(alpha: 0.5),
+                          fontWeight: unreadCount > 0
+                              ? FontWeight.w500
+                              : FontWeight.w400,
+                          fontSize: 13,
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+
+              const SizedBox(width: 10),
+
+              Obx(() {
+                controller.updateTrigger.value;
+
+                final unreadCount = RealmHelper().getUnreadCountForUser(
+                  chat.id,
+                );
+
+                final lastMessage = RealmHelper().getLastMessageForUser(
+                  chat.id,
+                );
+
+                final timeText = lastMessage != null
+                    ? _formatDate(lastMessage.createdAt)
+                    : '';
+
+                return Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      timeText,
+                      style: TextStyle(
+                        color: ColorConstants.white.withValues(alpha: 0.5),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+
+                    if (unreadCount > 0) ...[
+                      const SizedBox(height: 4),
+                      Container(
+                        height: 20,
+                        width: 20,
+                        decoration: BoxDecoration(
+                          color: ColorConstants.primaryBlue,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Center(
+                          child: Text(
+                            unreadCount > 9 ? '9+' : unreadCount.toString(),
+                            style: const TextStyle(
+                              color: ColorConstants.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                );
+              }),
+            ],
+          ),
+        ),
       ),
     );
   }

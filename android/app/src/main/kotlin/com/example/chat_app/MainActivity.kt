@@ -18,8 +18,10 @@ import android.os.Looper
 import android.util.Log
 import android.util.Rational
 import android.view.WindowManager
+import androidx.core.content.ContextCompat
 import com.example.chat_app.call.CallForegroundService
 import com.example.chat_app.call.CallNotificationHelper
+import com.example.chat_app.remotecontrol.RemoteControlAccessibilityService
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -30,6 +32,7 @@ class MainActivity : FlutterActivity() {
     private var isCameraEnabled = true
     private var pipChannel: MethodChannel? = null
     private var notificationChannel: MethodChannel? = null
+    private var remoteControlChannel: MethodChannel? = null
     private var hasPendingOpenCall = false
     private var pendingOpenCallAttempts = 0
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -122,6 +125,18 @@ class MainActivity : FlutterActivity() {
                             stopOngoingCall()
                             result.success(null)
                         }
+                        "startScreenShareForeground" -> {
+                            val args = call.arguments as? Map<*, *> ?: emptyMap<String, Any>()
+                            showScreenShareForeground(
+                                title = args["title"] as? String ?: "Screen sharing",
+                                body = args["body"] as? String ?: "Your screen is being shared",
+                            )
+                            waitForMediaProjectionForeground(result)
+                        }
+                        "stopScreenShareForeground" -> {
+                            stopScreenShareForeground()
+                            result.success(null)
+                        }
                         "showIncomingCall" -> {
                             val args = call.arguments as? Map<*, *> ?: emptyMap<String, Any>()
                             showIncomingCall(
@@ -135,6 +150,72 @@ class MainActivity : FlutterActivity() {
                         "stopIncomingCall" -> {
                             stopIncomingCall()
                             result.success(null)
+                        }
+                        else -> result.notImplemented()
+                }
+            }
+        }
+
+        remoteControlChannel =
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, REMOTE_CONTROL_CHANNEL).also {
+                it.setMethodCallHandler { call, result ->
+                    val args = call.arguments as? Map<*, *> ?: emptyMap<String, Any>()
+                    when (call.method) {
+                        "isAccessibilityEnabled" -> {
+                            result.success(RemoteControlAccessibilityService.isServiceEnabled(this))
+                        }
+                        "openAccessibilitySettings" -> {
+                            RemoteControlAccessibilityService.openAccessibilitySettings(this)
+                            result.success(null)
+                        }
+                        "tap" -> {
+                            val x = args.floatArg("x")
+                            val y = args.floatArg("y")
+                            if (x == null || y == null) {
+                                result.error("bad_args", "tap requires x and y", null)
+                            } else {
+                                result.success(RemoteControlAccessibilityService.tap(x, y))
+                            }
+                        }
+                        "swipe" -> {
+                            val startX = args.floatArg("startX")
+                            val startY = args.floatArg("startY")
+                            val endX = args.floatArg("endX")
+                            val endY = args.floatArg("endY")
+                            if (startX == null || startY == null || endX == null || endY == null) {
+                                result.error(
+                                    "bad_args",
+                                    "swipe requires startX, startY, endX, and endY",
+                                    null,
+                                )
+                            } else {
+                                val durationMs = args.longArg("durationMs") ?: 250L
+                                result.success(
+                                    RemoteControlAccessibilityService.swipe(
+                                        startX,
+                                        startY,
+                                        endX,
+                                        endY,
+                                        durationMs,
+                                    ),
+                                )
+                            }
+                        }
+                        "globalAction" -> {
+                            val action = args["action"] as? String
+                            if (action == null) {
+                                result.error("bad_args", "globalAction requires action", null)
+                            } else {
+                                result.success(RemoteControlAccessibilityService.globalAction(action))
+                            }
+                        }
+                        "setText" -> {
+                            val text = args["text"] as? String
+                            if (text == null) {
+                                result.error("bad_args", "setText requires text", null)
+                            } else {
+                                result.success(RemoteControlAccessibilityService.setFocusedText(text))
+                            }
                         }
                         else -> result.notImplemented()
                     }
@@ -426,11 +507,44 @@ class MainActivity : FlutterActivity() {
             putExtra(CallForegroundService.EXTRA_IS_CAMERA_ENABLED, isCameraEnabled)
             putExtra(CallForegroundService.EXTRA_IS_SCREEN_SHARING, isScreenSharing)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ContextCompat.startForegroundService(this, serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+        }.onFailure {
+            Log.w("MainActivity", "Unable to start ongoing call foreground service", it)
         }
+    }
+
+    private fun waitForMediaProjectionForeground(
+        result: MethodChannel.Result,
+        attempt: Int = 0,
+    ) {
+        if (CallForegroundService.isMediaProjectionForegroundActive()) {
+            result.success(true)
+            return
+        }
+
+        if (attempt >= MEDIA_PROJECTION_FOREGROUND_MAX_ATTEMPTS) {
+            result.error(
+                "media_projection_foreground_not_started",
+                CallForegroundService.lastForegroundStartError
+                    ?: "Media projection foreground service did not become active "
+                    + "(activeServiceType=${CallForegroundService.activeForegroundServiceType})",
+                mapOf(
+                    "activeServiceType" to CallForegroundService.activeForegroundServiceType,
+                    "lastStartError" to CallForegroundService.lastForegroundStartError,
+                ),
+            )
+            return
+        }
+
+        mainHandler.postDelayed(
+            { waitForMediaProjectionForeground(result, attempt + 1) },
+            MEDIA_PROJECTION_FOREGROUND_POLL_MS,
+        )
     }
 
     private fun showIncomingCall(
@@ -450,10 +564,61 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun stopOngoingCall() {
+        stopScreenShareForeground()
         val serviceIntent = Intent(this, CallForegroundService::class.java).apply {
             action = CallForegroundService.ACTION_STOP
         }
         startService(serviceIntent)
+    }
+
+    private fun showScreenShareForeground(title: String, body: String) {
+        CallForegroundService.resetMediaProjectionStart()
+        val serviceIntent = Intent(this, CallForegroundService::class.java).apply {
+            action = CallForegroundService.ACTION_SHOW
+            putExtra(CallForegroundService.EXTRA_TITLE, title)
+            putExtra(CallForegroundService.EXTRA_BODY, body)
+            putExtra(CallForegroundService.EXTRA_IS_VIDEO, true)
+            putExtra(CallForegroundService.EXTRA_IS_MIC_ENABLED, isMicEnabled)
+            putExtra(CallForegroundService.EXTRA_IS_CAMERA_ENABLED, isCameraEnabled)
+            putExtra(CallForegroundService.EXTRA_IS_SCREEN_SHARING, true)
+        }
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ContextCompat.startForegroundService(this, serviceIntent)
+            } else {
+                val component = startService(serviceIntent)
+                if (component == null) {
+                    CallForegroundService.markMediaProjectionStartError(
+                        "Android did not return a service component for media projection foreground start",
+                    )
+                }
+            }
+        }.onFailure {
+            CallForegroundService.markMediaProjectionStartError(it.message)
+            Log.w("MainActivity", "Unable to start screen share foreground service", it)
+        }
+    }
+
+    private fun stopScreenShareForeground() {
+        val serviceIntent = Intent(this, CallForegroundService::class.java).apply {
+            action = CallForegroundService.ACTION_SHOW
+            putExtra(CallForegroundService.EXTRA_TITLE, "Ongoing call")
+            putExtra(CallForegroundService.EXTRA_BODY, "Tap to return to call")
+            putExtra(CallForegroundService.EXTRA_IS_VIDEO, isActiveVideoCall)
+            putExtra(CallForegroundService.EXTRA_IS_MIC_ENABLED, isMicEnabled)
+            putExtra(CallForegroundService.EXTRA_IS_CAMERA_ENABLED, isCameraEnabled)
+            putExtra(CallForegroundService.EXTRA_IS_SCREEN_SHARING, false)
+        }
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ContextCompat.startForegroundService(this, serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+        }
+            .onFailure {
+                Log.w("MainActivity", "Unable to stop screen share foreground service", it)
+            }
     }
 
     private fun stopIncomingCall() {
@@ -464,6 +629,7 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val PIP_CHANNEL = "app.call/pip"
         private const val NOTIFICATION_CHANNEL = "app.call/notification"
+        private const val REMOTE_CONTROL_CHANNEL = "app.remote_control/accessibility"
         const val ACTION_ANSWER_CALL = "com.example.chat_app.action.ANSWER_CALL"
         const val ACTION_DECLINE_CALL = "com.example.chat_app.action.DECLINE_CALL"
         const val ACTION_HANGUP_CALL = "com.example.chat_app.action.HANGUP_CALL"
@@ -473,6 +639,32 @@ class MainActivity : FlutterActivity() {
         const val ACTION_OPEN_INCOMING_CALL = "com.example.chat_app.action.OPEN_INCOMING_CALL"
         private const val OPEN_CALL_RETRY_DELAY_MS = 300L
         private const val INCOMING_CALL_OPEN_DELAY_MS = 120L
+        private const val MEDIA_PROJECTION_FOREGROUND_POLL_MS = 100L
+        private const val MEDIA_PROJECTION_FOREGROUND_MAX_ATTEMPTS = 80
         private const val MAX_OPEN_CALL_ATTEMPTS = 10
+    }
+}
+
+private fun Map<*, *>.floatArg(key: String): Float? {
+    val value = this[key] ?: return null
+    return when (value) {
+        is Float -> value
+        is Double -> value.toFloat()
+        is Int -> value.toFloat()
+        is Long -> value.toFloat()
+        is String -> value.toFloatOrNull()
+        else -> null
+    }
+}
+
+private fun Map<*, *>.longArg(key: String): Long? {
+    val value = this[key] ?: return null
+    return when (value) {
+        is Long -> value
+        is Int -> value.toLong()
+        is Double -> value.toLong()
+        is Float -> value.toLong()
+        is String -> value.toLongOrNull()
+        else -> null
     }
 }

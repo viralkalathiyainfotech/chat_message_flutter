@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="remote_control_accessibility_description">Allows trusted call sessions to control this device during remote support.</string>
+</resources>

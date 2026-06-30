@@ -333,7 +333,7 @@ class BackgroundMessageProcessor {
         'actionId': actionId,
         'stage': stage,
         'at': DateTime.now().toUtc().toIso8601String(),
-        if (extra != null) ...extra,
+        ...?extra,
       }),
     );
   }

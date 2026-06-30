@@ -48,8 +48,6 @@ void main() async {
   Get.put(ReceiptService());
   Get.put(NotificationNavigationService());
   Get.put(ChatNotificationService());
-  await Get.find<ChatNotificationService>().initialize();
-  await Get.find<ChatNotificationService>().requestPermissions();
   Get.put(MessageSyncService());
   Get.put(CallService());
   Get.put(CallOverlayService());
@@ -61,27 +59,37 @@ void main() async {
   // Initialize ThemeController
   Get.put(ThemeController());
   Get.put(PushNotificationService());
-  await Get.find<PushNotificationService>().initialize();
 
-  final wasLaunchedFromCallNotification =
-      await Get.find<ChatNotificationService>()
-          .hasInitialCallNotificationLaunch();
-  final initialRoute =
-      wasLaunchedFromCallNotification && Get.find<StorageService>().isLoggedIn
-      ? AppRoutes.home
-      : AppRoutes.splash;
+  final initialRoute = AppRoutes.splash;
 
   runApp(MyApp(initialRoute: initialRoute));
   WidgetsBinding.instance.addPostFrameCallback((_) {
+    unawaited(_initializeStartupNotifications());
     if (Get.isRegistered<NotificationNavigationService>()) {
       Get.find<NotificationNavigationService>().markReady();
     }
-    if (Get.isRegistered<ChatNotificationService>()) {
-      unawaited(
-        Get.find<ChatNotificationService>().handleInitialNotificationLaunch(),
-      );
-    }
   });
+}
+
+Future<void> _initializeStartupNotifications() async {
+  try {
+    if (Get.isRegistered<ChatNotificationService>()) {
+      final notificationService = Get.find<ChatNotificationService>();
+      await notificationService.initialize();
+      await notificationService.requestPermissions();
+      await notificationService.handleInitialNotificationLaunch();
+    }
+  } catch (e) {
+    Get.log('Unable to initialize chat notifications: $e', isError: true);
+  }
+
+  try {
+    if (Get.isRegistered<PushNotificationService>()) {
+      await Get.find<PushNotificationService>().initialize();
+    }
+  } catch (e) {
+    Get.log('Unable to initialize push notifications: $e', isError: true);
+  }
 }
 
 class MyApp extends StatelessWidget {

@@ -4,6 +4,7 @@ import 'package:chat_app/core/database/realm_helper.dart';
 import 'package:chat_app/core/database/realm_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_background/flutter_background.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:get/get.dart' hide navigator;
 import 'package:uuid/uuid.dart';
@@ -26,6 +27,9 @@ class CallService extends GetxService {
   MediaStream? _screenShareStream;
   MediaStreamTrack? _cameraVideoTrackBeforeScreenShare;
   bool _isStoppingScreenShare = false;
+  bool _isTogglingScreenShare = false;
+  bool _screenShareBackgroundExecutionEnabled = false;
+  String? _lastScreenShareForegroundError;
 
   // Reactive states
   final RxBool isCalling = false.obs;
@@ -162,7 +166,11 @@ class CallService extends GetxService {
           peerId,
           signal,
         );
-        if (didApplyDescription && signal['type'] == 'answer') {
+        if (didApplyDescription && signal['type'] == 'offer') {
+          await _answerRenegotiationOffer(peerId, pc);
+          _markParticipantActive(peerId);
+          _markCallConnected();
+        } else if (didApplyDescription && signal['type'] == 'answer') {
           _markParticipantActive(peerId);
           _markCallConnected();
           _introduceParticipantToGroup(peerId);
@@ -767,6 +775,7 @@ class CallService extends GetxService {
           'roomId': currentRoomId,
         });
       }
+      return true;
     } else if (offer != null) {
       if (offer['type'] == 'offer') {
         final didApplyOffer = await _applyRemoteDescription(peerId, offer);
@@ -967,6 +976,24 @@ class CallService extends GetxService {
     }
   }
 
+  Future<void> _answerRenegotiationOffer(
+    String peerId,
+    RTCPeerConnection pc,
+  ) async {
+    try {
+      final answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      _socketService.emitCallSignal({
+        'signal': {'type': answer.type, 'sdp': answer.sdp},
+        'from': _storageService.getUserId(),
+        'to': peerId,
+        'roomId': currentRoomId,
+      });
+    } catch (e) {
+      Get.log('Unable to answer renegotiation offer for $peerId: $e');
+    }
+  }
+
   String? _peerIdFromPayload(Map<String, dynamic> data) {
     final myId = _storageService.getUserId();
     final candidates = [
@@ -1083,6 +1110,7 @@ class CallService extends GetxService {
 
     final existingRenderer = remoteRenderers[peerId];
     if (existingRenderer != null) {
+      existingRenderer.srcObject = null;
       existingRenderer.srcObject = stream;
       remoteRenderers.refresh();
     } else {
@@ -1145,7 +1173,12 @@ class CallService extends GetxService {
   }
 
   void endCall() {
-    for (var peerId in peerConnections.keys) {
+    final notifiedPeerIds = peerConnections.keys.toSet();
+    if (notifiedPeerIds.isEmpty) {
+      notifiedPeerIds.addAll(_remotePeerIdsForCurrentCall());
+    }
+
+    for (var peerId in notifiedPeerIds) {
       _socketService.emitEndCall({
         'to': peerId,
         'from': _storageService.getUserId(),
@@ -1162,6 +1195,26 @@ class CallService extends GetxService {
       });
     }
     endCallLocally();
+  }
+
+  Set<String> _remotePeerIdsForCurrentCall() {
+    final myId = _storageService.getUserId();
+    final peerIds = <String>{};
+
+    final incomingCallerId = _idFromPayloadValue(
+      incomingCallData?['fromEmail'],
+    );
+    if (incomingCallerId != null) peerIds.add(incomingCallerId);
+
+    if (!isGroupCall) {
+      final directPeerId = _idFromPayloadValue(remoteUserId);
+      if (directPeerId != null) peerIds.add(directPeerId);
+    } else {
+      peerIds.addAll(callParticipants);
+    }
+
+    peerIds.removeWhere((id) => id.isEmpty || id == myId);
+    return peerIds;
   }
 
   void endCallLocally() {
@@ -1206,16 +1259,40 @@ class CallService extends GetxService {
   }
 
   Future<void> toggleScreenShare() async {
-    if (localStream == null || peerConnections.isEmpty) return;
+    await _toggleScreenShare(fullScreenOnly: false);
+  }
 
-    if (!isScreenSharing.value) {
-      await _startScreenShare();
-    } else {
-      await _stopScreenShare();
+  Future<void> toggleFullScreenShare() async {
+    await _toggleScreenShare(fullScreenOnly: true);
+  }
+
+  Future<void> _toggleScreenShare({required bool fullScreenOnly}) async {
+    if (_isTogglingScreenShare) return;
+    _isTogglingScreenShare = true;
+
+    try {
+      if (localStream == null) {
+        _showScreenShareError('Start a video call before sharing your screen.');
+        return;
+      }
+      if (peerConnections.isEmpty) {
+        _showScreenShareError(
+          'Screen sharing will be available after the call connects.',
+        );
+        return;
+      }
+
+      if (!isScreenSharing.value) {
+        await _startScreenShare(fullScreenOnly: fullScreenOnly);
+      } else {
+        await _stopScreenShare();
+      }
+    } finally {
+      _isTogglingScreenShare = false;
     }
   }
 
-  Future<void> _startScreenShare() async {
+  Future<void> _startScreenShare({required bool fullScreenOnly}) async {
     MediaStream? displayMedia;
     try {
       final cameraTracks = localStream!.getVideoTracks();
@@ -1225,31 +1302,79 @@ class CallService extends GetxService {
       }
 
       _cameraVideoTrackBeforeScreenShare = cameraTracks.first;
-      if (GetPlatform.isAndroid) {
-        final captureAllowed = await Helper.requestCapturePermission();
-        if (!captureAllowed) {
+      final capturePermissionGranted = await _requestScreenCapturePermission(
+        fullScreenOnly: fullScreenOnly,
+      );
+      if (!capturePermissionGranted) {
+        _cameraVideoTrackBeforeScreenShare = null;
+        _showScreenShareError('Screen capture permission was not granted.');
+        return;
+      }
+
+      if (fullScreenOnly) {
+        final backgroundReady =
+            await _ensureAndroidScreenShareBackgroundExecution();
+        if (!backgroundReady) {
           _cameraVideoTrackBeforeScreenShare = null;
+          _showScreenShareError(
+            'Full-screen sharing needs Android screen-capture background execution.',
+          );
           return;
         }
       }
 
-      await _setScreenShareForegroundState(true);
+      _lastScreenShareForegroundError = null;
+      final foregroundReady =
+          fullScreenOnly || await _setScreenShareForegroundState(true);
+      if (!foregroundReady) {
+        _cameraVideoTrackBeforeScreenShare = null;
+        if (fullScreenOnly) {
+          await _disableAndroidScreenShareBackgroundExecution();
+        }
+        _showScreenShareError(
+          _lastScreenShareForegroundError ??
+              'Screen sharing needs an active Android screen-capture foreground service.',
+        );
+        return;
+      }
+
       displayMedia = await navigator.mediaDevices.getDisplayMedia({
-        'video': true,
+        'video': {
+          'width': 960,
+          'height': 540,
+          'frameRate': 12,
+        },
         'audio': false,
       });
 
       final displayTracks = displayMedia.getVideoTracks();
       if (displayTracks.isEmpty) {
         await _disposeMediaStream(displayMedia);
-        await _setScreenShareForegroundState(false);
+        await _stopScreenShareForegroundState(fullScreenOnly: fullScreenOnly);
         Get.log('Screen share did not return a video track', isError: true);
+        _showScreenShareError('Screen capture did not return a video track.');
         return;
       }
 
       final screenTrack = displayTracks.first;
       _screenShareStream = displayMedia;
-      await _replaceOutgoingVideoTrack(screenTrack, stream: displayMedia);
+
+      final didReplace = await _replaceOutgoingVideoTrack(
+        screenTrack,
+        stream: displayMedia,
+        maxBitrate: WebRTC.platformIsAndroid ? 300000 : 800000,
+        maxFramerate: WebRTC.platformIsAndroid ? 6 : 12,
+      );
+      if (!didReplace) {
+        await _disposeMediaStream(displayMedia);
+        _screenShareStream = null;
+        _cameraVideoTrackBeforeScreenShare = null;
+        await _stopScreenShareForegroundState(fullScreenOnly: fullScreenOnly);
+        _showScreenShareError(
+          'Unable to send your screen in this call. Please reconnect and try again.',
+        );
+        return;
+      }
 
       localRenderer.value.srcObject = displayMedia;
       localRenderer.refresh();
@@ -1267,9 +1392,34 @@ class CallService extends GetxService {
       isScreenSharing.value = false;
       localRenderer.value.srcObject = localStream;
       localRenderer.refresh();
-      await _setScreenShareForegroundState(false);
+      await _stopScreenShareForegroundState(fullScreenOnly: fullScreenOnly);
       Get.log("Error sharing screen: $e", isError: true);
+      _showScreenShareError('Unable to start screen sharing: $e');
     }
+  }
+
+  Future<bool> _requestScreenCapturePermission({
+    bool fullScreenOnly = false,
+  }) async {
+    try {
+      if (!WebRTC.platformIsAndroid && !WebRTC.platformIsMacOS) return true;
+
+      return await Helper.requestCapturePermission(
+        fullScreenOnly: fullScreenOnly,
+      );
+    } catch (e) {
+      Get.log('Unable to request screen capture permission: $e', isError: true);
+      return false;
+    }
+  }
+
+  void _showScreenShareError(String message) {
+    Get.snackbar(
+      'Screen share failed',
+      message,
+      backgroundColor: Colors.red,
+      colorText: Colors.white,
+    );
   }
 
   Future<void> _stopScreenShare() async {
@@ -1284,7 +1434,10 @@ class CallService extends GetxService {
               : null);
 
       if (cameraTrack != null) {
-        await _replaceOutgoingVideoTrack(cameraTrack, stream: localStream);
+        await _replaceOutgoingVideoTrack(
+          cameraTrack,
+          stream: localStream,
+        );
       }
 
       await _disposeMediaStream(_screenShareStream);
@@ -1294,7 +1447,7 @@ class CallService extends GetxService {
       localRenderer.value.srcObject = localStream;
       localRenderer.refresh();
       isScreenSharing.value = false;
-      await _setScreenShareForegroundState(false);
+      await _stopScreenShareForegroundState();
     } catch (e) {
       Get.log("Error stopping screen share: $e", isError: true);
     } finally {
@@ -1302,9 +1455,11 @@ class CallService extends GetxService {
     }
   }
 
-  Future<void> _replaceOutgoingVideoTrack(
+  Future<bool> _replaceOutgoingVideoTrack(
     MediaStreamTrack videoTrack, {
     MediaStream? stream,
+    int? maxBitrate,
+    int? maxFramerate,
   }) async {
     var replacedCount = 0;
 
@@ -1317,6 +1472,11 @@ class CallService extends GetxService {
         if (stream != null) {
           await storedSender.setStreams([stream]);
         }
+        await _configureVideoSender(
+          storedSender,
+          maxBitrate: maxBitrate,
+          maxFramerate: maxFramerate,
+        );
         replacedCount++;
         continue;
       }
@@ -1328,6 +1488,11 @@ class CallService extends GetxService {
         if (stream != null) {
           await sender.setStreams([stream]);
         }
+        await _configureVideoSender(
+          sender,
+          maxBitrate: maxBitrate,
+          maxFramerate: maxFramerate,
+        );
         _videoSenders[peerId] = sender;
         replacedCount++;
         break;
@@ -1336,6 +1501,29 @@ class CallService extends GetxService {
 
     if (replacedCount == 0) {
       Get.log('No outgoing video sender found for screen share', isError: true);
+    }
+    return replacedCount > 0;
+  }
+
+  Future<void> _configureVideoSender(
+    RTCRtpSender sender, {
+    int? maxBitrate,
+    int? maxFramerate,
+  }) async {
+    if (maxBitrate == null && maxFramerate == null) return;
+
+    try {
+      final parameters = sender.parameters;
+      final encodings = parameters.encodings;
+      if (encodings == null || encodings.isEmpty) return;
+
+      for (final encoding in encodings) {
+        if (maxBitrate != null) encoding.maxBitrate = maxBitrate;
+        if (maxFramerate != null) encoding.maxFramerate = maxFramerate;
+      }
+      await sender.setParameters(parameters);
+    } catch (e) {
+      Get.log('Unable to tune video sender for screen share: $e');
     }
   }
 
@@ -1347,28 +1535,101 @@ class CallService extends GetxService {
     await stream.dispose();
   }
 
-  Future<void> _setScreenShareForegroundState(bool active) async {
-    if (!isInCall.value) return;
+  Future<bool> _ensureAndroidScreenShareBackgroundExecution() async {
+    if (!WebRTC.platformIsAndroid) return true;
 
     try {
-      final typeLabel = isVideoCall ? 'Video call' : 'Voice call';
-      final remoteName = callDisplayName;
-      await _notificationChannel.invokeMethod<void>('showOngoingCall', {
-        'title': typeLabel,
-        'body': '$remoteName • ongoing',
-        'isVideo': isVideoCall,
-        'audioEnabled': isAudioEnabled.value,
-        'videoEnabled': isVideoEnabled.value,
-        'isScreenSharing': active,
-      });
-      if (active) {
-        await Future<void>.delayed(const Duration(milliseconds: 1000));
+      final hasPermissions = await FlutterBackground.initialize(
+        androidConfig: const FlutterBackgroundAndroidConfig(
+          notificationTitle: 'Screen sharing',
+          notificationText: 'Your screen is being shared',
+          notificationImportance: AndroidNotificationImportance.normal,
+          notificationIcon: AndroidResource(
+            name: 'ic_launcher',
+            defType: 'mipmap',
+          ),
+          enableWifiLock: false,
+          shouldRequestBatteryOptimizationsOff: false,
+        ),
+      );
+      if (!hasPermissions) return false;
+
+      if (!FlutterBackground.isBackgroundExecutionEnabled) {
+        final didEnable = await FlutterBackground.enableBackgroundExecution();
+        _screenShareBackgroundExecutionEnabled = didEnable;
+        return didEnable;
       }
-    } on PlatformException catch (e) {
+
+      _screenShareBackgroundExecutionEnabled = true;
+      return true;
+    } catch (e) {
       Get.log(
-        'Unable to update screen share foreground service: ${e.message}',
+        'Unable to enable Android screen-share background execution: $e',
         isError: true,
       );
+      return false;
+    }
+  }
+
+  Future<void> _disableAndroidScreenShareBackgroundExecution() async {
+    if (!WebRTC.platformIsAndroid ||
+        !_screenShareBackgroundExecutionEnabled ||
+        !FlutterBackground.isBackgroundExecutionEnabled) {
+      _screenShareBackgroundExecutionEnabled = false;
+      return;
+    }
+
+    try {
+      await FlutterBackground.disableBackgroundExecution();
+    } catch (e) {
+      Get.log(
+        'Unable to disable Android screen-share background execution: $e',
+        isError: true,
+      );
+    } finally {
+      _screenShareBackgroundExecutionEnabled = false;
+    }
+  }
+
+  Future<void> _stopScreenShareForegroundState({
+    bool fullScreenOnly = false,
+  }) async {
+    if (fullScreenOnly || _screenShareBackgroundExecutionEnabled) {
+      await _disableAndroidScreenShareBackgroundExecution();
+      return;
+    }
+    await _setScreenShareForegroundState(false);
+  }
+
+  Future<bool> _setScreenShareForegroundState(bool active) async {
+    if (!isInCall.value) return false;
+
+    try {
+      final remoteName = callDisplayName;
+      if (active) {
+        final didStart = await _notificationChannel
+            .invokeMethod<bool>('startScreenShareForeground', {
+              'title': 'Screen sharing',
+              'body': '$remoteName - screen sharing',
+            });
+        if (didStart != true) {
+          _lastScreenShareForegroundError =
+              'Android did not confirm the screen-capture foreground service.';
+        }
+        return didStart == true;
+      }
+      await _notificationChannel.invokeMethod<void>('stopScreenShareForeground');
+      return true;
+    } on PlatformException catch (e) {
+      _lastScreenShareForegroundError =
+          e.message ??
+          'Screen sharing needs an active Android screen-capture foreground service.';
+      Get.log(
+        'Unable to update screen share foreground service: '
+        '${e.code}: ${e.message}',
+        isError: true,
+      );
+      return false;
     }
   }
 
