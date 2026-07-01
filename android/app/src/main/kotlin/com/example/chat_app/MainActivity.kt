@@ -33,6 +33,7 @@ class MainActivity : FlutterActivity() {
     private var pipChannel: MethodChannel? = null
     private var notificationChannel: MethodChannel? = null
     private var remoteControlChannel: MethodChannel? = null
+    private var devicePerformanceChannel: MethodChannel? = null
     private var hasPendingOpenCall = false
     private var pendingOpenCallAttempts = 0
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -225,6 +226,16 @@ class MainActivity : FlutterActivity() {
                                 result.success(RemoteControlAccessibilityService.setFocusedText(text))
                             }
                         }
+                        else -> result.notImplemented()
+                    }
+                }
+            }
+
+        devicePerformanceChannel =
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DEVICE_PERFORMANCE_CHANNEL).also {
+                it.setMethodCallHandler { call, result ->
+                    when (call.method) {
+                        "getDeviceProfile" -> result.success(getDevicePerformanceProfile())
                         else -> result.notImplemented()
                     }
                 }
@@ -634,10 +645,91 @@ class MainActivity : FlutterActivity() {
         clearIncomingCallWindowFlags()
     }
 
+    private fun getDevicePerformanceProfile(): Map<String, Any> {
+        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val memoryInfo = ActivityManager.MemoryInfo()
+        activityManager.getMemoryInfo(memoryInfo)
+
+        val isLowRam = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            activityManager.isLowRamDevice
+        } else {
+            false
+        }
+        val memoryClassMb = activityManager.memoryClass
+        val largeMemoryClassMb = activityManager.largeMemoryClass
+        val totalMemoryMb = memoryInfo.totalMem / (1024L * 1024L)
+        val availableMemoryMb = memoryInfo.availMem / (1024L * 1024L)
+        val cpuCores = Runtime.getRuntime().availableProcessors()
+        val manufacturer = Build.MANUFACTURER.orEmpty()
+        val model = Build.MODEL.orEmpty()
+        val profile = classifyDevicePerformance(
+            isLowRam = isLowRam,
+            memoryClassMb = memoryClassMb,
+            totalMemoryMb = totalMemoryMb,
+            cpuCores = cpuCores,
+            manufacturer = manufacturer,
+            model = model,
+        )
+
+        return mapOf(
+            "profile" to profile,
+            "isLowRamDevice" to isLowRam,
+            "memoryClassMb" to memoryClassMb,
+            "largeMemoryClassMb" to largeMemoryClassMb,
+            "totalMemoryMb" to totalMemoryMb,
+            "availableMemoryMb" to availableMemoryMb,
+            "cpuCores" to cpuCores,
+            "sdkInt" to Build.VERSION.SDK_INT,
+            "manufacturer" to manufacturer,
+            "model" to model,
+        )
+    }
+
+    private fun classifyDevicePerformance(
+        isLowRam: Boolean,
+        memoryClassMb: Int,
+        totalMemoryMb: Long,
+        cpuCores: Int,
+        manufacturer: String,
+        model: String,
+    ): String {
+        val manufacturerText = manufacturer.lowercase()
+        val modelText = model.lowercase()
+        val isKnownAggressiveAndroid =
+            manufacturerText.contains("vivo") ||
+                manufacturerText.contains("iqoo") ||
+                manufacturerText.contains("oppo") ||
+                manufacturerText.contains("realme")
+
+        if (
+            isLowRam ||
+            memoryClassMb <= 192 ||
+            totalMemoryMb in 1..3072 ||
+            cpuCores <= 4 ||
+            (isKnownAggressiveAndroid && totalMemoryMb in 1..6144)
+        ) {
+            return "low"
+        }
+
+        if (
+            memoryClassMb <= 256 ||
+            totalMemoryMb in 1..6144 ||
+            cpuCores <= 6 ||
+            (isKnownAggressiveAndroid && totalMemoryMb in 1..8192) ||
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.R ||
+            modelText.contains("lite")
+        ) {
+            return "mid"
+        }
+
+        return "high"
+    }
+
     companion object {
         private const val PIP_CHANNEL = "app.call/pip"
         private const val NOTIFICATION_CHANNEL = "app.call/notification"
         private const val REMOTE_CONTROL_CHANNEL = "app.remote_control/accessibility"
+        private const val DEVICE_PERFORMANCE_CHANNEL = "app.device/performance"
         const val ACTION_ANSWER_CALL = "com.example.chat_app.action.ANSWER_CALL"
         const val ACTION_DECLINE_CALL = "com.example.chat_app.action.DECLINE_CALL"
         const val ACTION_HANGUP_CALL = "com.example.chat_app.action.HANGUP_CALL"

@@ -1576,7 +1576,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       iconColor = Colors.greenAccent;
     } else {
       title = 'Video Call';
-      subtitle = isMe ? '12 Sec' : '10 Sec';
+      subtitle = content.toLowerCase();
       icon = Icons.check;
       iconColor = Colors.greenAccent;
     }

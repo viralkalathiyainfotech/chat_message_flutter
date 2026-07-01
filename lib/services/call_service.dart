@@ -9,6 +9,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:get/get.dart' hide navigator;
 import 'package:uuid/uuid.dart';
 import 'socket_service.dart';
+import 'device_performance_service.dart';
 import 'storage_service.dart';
 
 class CallService extends GetxService {
@@ -18,6 +19,8 @@ class CallService extends GetxService {
 
   final SocketService _socketService = Get.find<SocketService>();
   final StorageService _storageService = Get.find<StorageService>();
+  final DevicePerformanceService _devicePerformanceService =
+      Get.find<DevicePerformanceService>();
 
   Map<String, RTCPeerConnection> peerConnections = {};
   final Map<String, RTCRtpSender> _videoSenders = {};
@@ -49,6 +52,11 @@ class CallService extends GetxService {
   final RxMap<String, MediaStream> remoteStreams = <String, MediaStream>{}.obs;
   final RxList<CallAudioOutput> audioOutputs = <CallAudioOutput>[].obs;
   final RxString selectedAudioOutputId = CallAudioOutput.speakerId.obs;
+
+  bool get shouldReduceLocalVideoRendering =>
+      WebRTC.platformIsAndroid &&
+      _devicePerformanceService.shouldReduceFlutterVideoLoad &&
+      isScreenSharing.value;
 
   String? currentRoomId;
   String? remoteUserId; // for 1-to-1, or groupId for group calls
@@ -542,19 +550,15 @@ class CallService extends GetxService {
       hasLocalStream.value = false;
       localRenderer.refresh();
     }
+    final cameraPreset = _devicePerformanceService.cameraPreset;
+    Get.log(
+      'Camera media preset: profile=${_devicePerformanceService.profile.value.name}, '
+      '${cameraPreset.width}x${cameraPreset.height}@${cameraPreset.frameRate}, '
+      'bitrate=${cameraPreset.maxBitrate}',
+    );
     final mediaConstraints = {
       'audio': true,
-      'video': video
-          ? {
-              'mandatory': {
-                'minWidth': '640',
-                'minHeight': '480',
-                'minFrameRate': '30',
-              },
-              'facingMode': 'user',
-              'optional': [],
-            }
-          : false,
+      'video': video ? _cameraVideoConstraints(cameraPreset) : false,
     };
 
     try {
@@ -565,6 +569,9 @@ class CallService extends GetxService {
       await selectPreferredAudioOutput();
       isAudioEnabled.value = localStream!.getAudioTracks().isNotEmpty;
       isVideoEnabled.value = !video || localStream!.getVideoTracks().isNotEmpty;
+      if (video) {
+        await _applyCameraSenderPreset();
+      }
       return _hasRequiredLocalMedia(video: video);
     } catch (e) {
       Get.log("Error getting user media: $e", isError: true);
@@ -583,6 +590,26 @@ class CallService extends GetxService {
       _localRendererInitialization = localRenderer.value.initialize();
       await _localRendererInitialization;
     }
+  }
+
+  Map<String, dynamic> _cameraVideoConstraints(CameraMediaPreset preset) {
+    final mandatory =
+        _devicePerformanceService.profile.value == DevicePerformanceProfile.high
+        ? {
+            'minWidth': '${preset.width}',
+            'minHeight': '${preset.height}',
+            'minFrameRate': '${preset.frameRate}',
+          }
+        : {
+            'minWidth': '${preset.width}',
+            'maxWidth': '${preset.width}',
+            'minHeight': '${preset.height}',
+            'maxHeight': '${preset.height}',
+            'minFrameRate': '${preset.frameRate}',
+            'maxFrameRate': '${preset.frameRate}',
+          };
+
+    return {'mandatory': mandatory, 'facingMode': 'user', 'optional': []};
   }
 
   Future<void> refreshAudioOutputs() async {
@@ -721,6 +748,14 @@ class CallService extends GetxService {
         final sender = await pc.addTrack(track, localStream!);
         if (track.kind == 'video') {
           _videoSenders[peerId] = sender;
+          if (WebRTC.platformIsAndroid) {
+            final preset = _devicePerformanceService.cameraPreset;
+            await _configureVideoSender(
+              sender,
+              maxBitrate: preset.maxBitrate,
+              maxFramerate: preset.frameRate,
+            );
+          }
         }
       }
     }
@@ -1340,6 +1375,18 @@ class CallService extends GetxService {
       }
 
       _lastScreenShareForegroundError = null;
+      final screenSharePreset = _devicePerformanceService.screenSharePreset(
+        fullScreenOnly: fullScreenOnly,
+      );
+      final screenShareMode = fullScreenOnly ? 'full' : 'single';
+      Get.log(
+        'Screen share media preset: profile=${_devicePerformanceService.profile.value.name}, '
+        'mode=$screenShareMode, '
+        '${screenSharePreset.width}x${screenSharePreset.height}@${screenSharePreset.frameRate}, '
+        'bitrate=${screenSharePreset.maxBitrate}, '
+        'senderFps=${screenSharePreset.maxFramerate}, '
+        'localPreview=${screenSharePreset.renderLocalPreview}',
+      );
       final foregroundReady =
           fullScreenOnly || await _setScreenShareForegroundState(true);
       if (!foregroundReady) {
@@ -1354,7 +1401,7 @@ class CallService extends GetxService {
         return;
       }
 
-      displayMedia = await _getDisplayMediaWithTextureRetry();
+      displayMedia = await _getDisplayMediaWithTextureRetry(screenSharePreset);
 
       final displayTracks = displayMedia.getVideoTracks();
       if (displayTracks.isEmpty) {
@@ -1371,8 +1418,12 @@ class CallService extends GetxService {
       final didReplace = await _replaceOutgoingVideoTrack(
         screenTrack,
         stream: displayMedia,
-        maxBitrate: WebRTC.platformIsAndroid ? 300000 : 800000,
-        maxFramerate: WebRTC.platformIsAndroid ? 6 : 12,
+        maxBitrate: WebRTC.platformIsAndroid
+            ? screenSharePreset.maxBitrate
+            : 800000,
+        maxFramerate: WebRTC.platformIsAndroid
+            ? screenSharePreset.maxFramerate
+            : 12,
       );
       if (!didReplace) {
         await _disposeMediaStream(displayMedia);
@@ -1385,7 +1436,9 @@ class CallService extends GetxService {
         return;
       }
 
-      localRenderer.value.srcObject = displayMedia;
+      localRenderer.value.srcObject = screenSharePreset.renderLocalPreview
+          ? displayMedia
+          : null;
       localRenderer.refresh();
       isScreenSharing.value = true;
       _emitScreenShareState(true);
@@ -1432,9 +1485,15 @@ class CallService extends GetxService {
     );
   }
 
-  Future<MediaStream> _getDisplayMediaWithTextureRetry() async {
-    const constraints = {
-      'video': {'width': 960, 'height': 540, 'frameRate': 12},
+  Future<MediaStream> _getDisplayMediaWithTextureRetry(
+    ScreenShareMediaPreset preset,
+  ) async {
+    final constraints = {
+      'video': {
+        'width': preset.width,
+        'height': preset.height,
+        'frameRate': preset.frameRate,
+      },
       'audio': false,
     };
 
@@ -1473,7 +1532,13 @@ class CallService extends GetxService {
               : null);
 
       if (cameraTrack != null) {
-        await _replaceOutgoingVideoTrack(cameraTrack, stream: localStream);
+        final cameraPreset = _devicePerformanceService.cameraPreset;
+        await _replaceOutgoingVideoTrack(
+          cameraTrack,
+          stream: localStream,
+          maxBitrate: cameraPreset.maxBitrate,
+          maxFramerate: cameraPreset.frameRate,
+        );
       }
 
       await _disposeMediaStream(_screenShareStream);
@@ -1540,6 +1605,34 @@ class CallService extends GetxService {
       Get.log('No outgoing video sender found for screen share', isError: true);
     }
     return replacedCount > 0;
+  }
+
+  Future<void> _applyCameraSenderPreset() async {
+    if (!WebRTC.platformIsAndroid || peerConnections.isEmpty) return;
+    final preset = _devicePerformanceService.cameraPreset;
+    for (final entry in peerConnections.entries) {
+      final storedSender = _videoSenders[entry.key];
+      if (storedSender != null) {
+        await _configureVideoSender(
+          storedSender,
+          maxBitrate: preset.maxBitrate,
+          maxFramerate: preset.frameRate,
+        );
+        continue;
+      }
+
+      final senders = await entry.value.getSenders();
+      for (final sender in senders) {
+        if (sender.track?.kind != 'video') continue;
+        _videoSenders[entry.key] = sender;
+        await _configureVideoSender(
+          sender,
+          maxBitrate: preset.maxBitrate,
+          maxFramerate: preset.frameRate,
+        );
+        break;
+      }
+    }
   }
 
   void _emitScreenShareState(bool isSharing) {

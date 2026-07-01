@@ -56,6 +56,9 @@ class _CallScreenState extends State<CallScreen> {
               remoteControlService.hasControl.value &&
               remoteScreenSharing &&
               controller.callService.remoteRenderers.isNotEmpty;
+          final hideLocalPreview =
+              remoteControlActive ||
+              controller.callService.shouldReduceLocalVideoRendering;
 
           return controller.isInPipMode.value
               ? _buildPipBody()
@@ -79,6 +82,7 @@ class _CallScreenState extends State<CallScreen> {
                         ),
                       if (remoteControlActive) _buildRemoteControlActions(),
                       if (isVideoCall &&
+                          !hideLocalPreview &&
                           !remoteControlActive &&
                           (!controller.callService.isGroupCall ||
                               controller

@@ -17,6 +17,7 @@ import 'services/call_service.dart';
 import 'services/call_notification_service.dart';
 import 'services/call_overlay_service.dart';
 import 'services/call_pip_service.dart';
+import 'services/device_performance_service.dart';
 import 'features/calls/presentation/controllers/call_controller.dart';
 import 'services/sync_service.dart';
 import 'services/socket_service.dart';
@@ -50,6 +51,7 @@ void main() async {
   Get.put(NotificationNavigationService());
   Get.put(ChatNotificationService());
   Get.put(MessageSyncService());
+  await Get.putAsync(() => DevicePerformanceService().init());
   Get.put(CallService());
   Get.put(CallOverlayService());
   Get.put(CallPipService());
