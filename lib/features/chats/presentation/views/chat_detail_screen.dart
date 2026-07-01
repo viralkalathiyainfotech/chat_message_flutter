@@ -1441,10 +1441,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           final List<XFile> images = await picker.pickMultiImage();
           if (images.isNotEmpty) {
             Get.back();
-            Get.to(() => GallerySelectionPreviewScreen(
-              selectedFilePaths: images.map((e) => e.path).toList(),
-              chatController: controller,
-            ));
+            Get.to(
+              () => GallerySelectionPreviewScreen(
+                selectedFilePaths: images.map((e) => e.path).toList(),
+                chatController: controller,
+              ),
+            );
           }
         },
         onAudioTap: () => controller.sendAudioAttachment(),
@@ -1473,13 +1475,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       return GestureDetector(
         onTap: () {
           if (isDownloaded) {
-            final isVideo = path.toLowerCase().endsWith('.mp4') || path.toLowerCase().endsWith('.mov') || path.toLowerCase().contains('video');
-            Get.to(() => MediaViewerScreen(
-              message: message,
-              isMe: isMe,
-              chatController: controller,
-              isVideo: isVideo,
-            ));
+            final isVideo =
+                path.toLowerCase().endsWith('.mp4') ||
+                path.toLowerCase().endsWith('.mov') ||
+                path.toLowerCase().contains('video');
+            Get.to(
+              () => MediaViewerScreen(
+                message: message,
+                isMe: isMe,
+                chatController: controller,
+                isVideo: isVideo,
+              ),
+            );
           }
         },
         child: ClipRRect(
@@ -1548,25 +1555,26 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     BuildContext context,
   ) {
     final String content = message.content?.content ?? '';
+    final String? callDuration = _formatCallDuration(message.content?.duration);
     String title = 'Video Call';
-    String subtitle = '10 Sec';
+    String subtitle = callDuration ?? '';
     IconData icon = Icons.videocam;
     Color iconColor = Colors.greenAccent;
 
     if (content.toLowerCase().contains('missed')) {
       title = 'Missed Video Call';
-      subtitle = '0 Sec';
+      subtitle = callDuration ?? '0 Sec';
       icon = Icons.phone_missed;
       iconColor = Colors.redAccent;
     } else if (content.toLowerCase().contains('voice') ||
         content.toLowerCase().contains('not answered')) {
       title = 'Voice Call';
-      subtitle = 'Not answered';
+      subtitle = callDuration ?? 'Not answered';
       icon = Icons.phone_missed;
       iconColor = Colors.redAccent;
     } else if (content.toLowerCase().contains('group')) {
       title = 'Group Call';
-      subtitle = '2 Invited';
+      subtitle = callDuration ?? '2 Invited';
       icon = Icons.group;
       iconColor = Colors.white;
     } else if (content.toLowerCase().contains('ongoing')) {
@@ -1576,7 +1584,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       iconColor = Colors.greenAccent;
     } else {
       title = 'Video Call';
-      subtitle = content.toLowerCase();
+      subtitle = callDuration ?? content.toLowerCase();
       icon = Icons.check;
       iconColor = Colors.greenAccent;
     }
@@ -1622,6 +1630,26 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         ],
       ),
     );
+  }
+
+  String? _formatCallDuration(String? rawDuration) {
+    final duration = rawDuration?.trim();
+    if (duration == null || duration.isEmpty) return null;
+
+    final seconds = int.tryParse(duration);
+    if (seconds == null) return duration;
+    if (seconds <= 0) return '0 Sec';
+    if (seconds < 60) return '$seconds Sec';
+
+    final minutes = seconds ~/ 60;
+    final remainingSeconds = seconds % 60;
+    if (minutes < 60) {
+      return '$minutes:${remainingSeconds.toString().padLeft(2, '0')} Min';
+    }
+
+    final hours = minutes ~/ 60;
+    final remainingMinutes = minutes % 60;
+    return '$hours:${remainingMinutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')} Hrs';
   }
 
   Widget _buildAudioBubble(
